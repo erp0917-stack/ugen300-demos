@@ -1,0 +1,10 @@
+# D4 手勢翻頁 — 需要的 Python 套件
+# 安裝方式（在開發筆電的終端機）：pip install -r requirements.txt
+#
+# 注意：hailort（連接 UGen300 的套件）不在這裡，
+#       因為它要從 Hailo Developer Zone 下載對應 Python 3.10 的 Windows 版來裝，
+#       週一 Claude Code 會幫你處理。
+
+opencv-python      # 處理 webcam 影像、畫骨架
+numpy              # 數值運算
+pyautogui          # 模擬鍵盤按鍵來翻頁

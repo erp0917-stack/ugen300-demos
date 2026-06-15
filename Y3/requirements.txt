@@ -1,0 +1,3 @@
+opencv-python
+numpy
+# 音效用 Windows 內建 winsound（免安裝）

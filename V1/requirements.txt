@@ -1,0 +1,8 @@
+# VLM 看圖問答 — 需要的 Python 套件
+# 安裝：pip install -r requirements.txt
+#
+# 注意：VLM 模型（Qwen2-VL-2B）和 Hailo-Ollama 服務跟 F1 共用同一套環境，
+#       週一 Claude Code 會幫你裝 Hailo-Ollama、下載 VLM 模型。
+
+opencv-python    # webcam、影像編碼
+numpy            # 影像處理

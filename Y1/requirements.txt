@@ -1,0 +1,7 @@
+# B1 即時偵測 — 需要的 Python 套件
+# 安裝：pip install -r requirements.txt
+# 注意：連接 UGen300 的 hailort 要從 Hailo Developer Zone 下載 Windows + Python 3.10 版，
+#       週一 Claude Code 會幫你裝。
+
+opencv-python    # webcam 影像、畫框
+numpy            # 數值運算
