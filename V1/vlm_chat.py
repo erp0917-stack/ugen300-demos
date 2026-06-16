@@ -69,7 +69,7 @@ def main():
             cv2.rectangle(frame, (0, 0), (w, 36), (26, 26, 46), -1)
             cv2.putText(frame, "SPACE=describe  1/2/3=preset  a=ask  q=quit",
                         (12, 25), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 212, 216), 2)
-            cv2.imshow("VLM 看圖問答（按 q 離開）", frame)
+            cv2.imshow("UGen300 VLM Visual Q&A (press q to quit)", frame)
 
             key = cv2.waitKey(1) & 0xFF
             if key == ord("q"):

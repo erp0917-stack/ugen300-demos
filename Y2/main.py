@@ -101,7 +101,7 @@ def main():
                 trigger_action(action)                 # 真的翻頁
 
             frame = draw_overlay(frame, keypoints, raw, args.conf)
-            cv2.imshow("D4 手勢翻頁（按 q 離開）", frame)
+            cv2.imshow("UGen300 Gesture Page-Flip (press q to quit)", frame)
             if cv2.waitKey(1) & 0xFF == ord("q"):
                 break
     finally:

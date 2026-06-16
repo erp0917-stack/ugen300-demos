@@ -200,7 +200,7 @@ def main():
                     x, y, c = keypoints[idx]
                     if c >= 0.5:
                         cv2.circle(frame, (int(x), int(y)), 12, (255, 255, 255), 3)
-            cv2.imshow("空氣樂器（按 q 離開）", frame)
+            cv2.imshow("UGen300 Air Instrument (press q to quit)", frame)
             if cv2.waitKey(1) & 0xFF == ord("q"):
                 break
     finally:

@@ -67,7 +67,7 @@ def draw_grid_on_sketch(sketch_gray):
         try:
             font_pil = ImageFont.truetype("C:/Windows/Fonts/msjh.ttc", fsize)
         except Exception:
-            print("找不到微軟正黑體字型（C:/Windows/Fonts/msjh.ttc），改用預設字型")
+            print("Microsoft JhengHei font not found (C:/Windows/Fonts/msjh.ttc), falling back to default font")
             font_pil = ImageFont.load_default()
         draw.text((4, 4), "三庭五眼", font=font_pil, fill=(100, 100, 100))
         result = cv2.cvtColor(np.array(pil_img), cv2.COLOR_RGB2BGR)

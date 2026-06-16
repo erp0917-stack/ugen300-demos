@@ -1,8 +1,7 @@
-# VLM 看圖問答 — 需要的 Python 套件
-# 安裝：pip install -r requirements.txt
-#
-# 注意：VLM 模型（Qwen2-VL-2B）和 Hailo-Ollama 服務跟 F1 共用同一套環境，
-#       週一 Claude Code 會幫你裝 Hailo-Ollama、下載 VLM 模型。
+# VLM Visual Q&A — Python packages
+# Install: pip install -r requirements.txt
+# Note: hailort (the package that talks to UGen300) is NOT included here.
+#       Download the Windows build for Python 3.10 from the Hailo Developer Zone.
 
-opencv-python    # webcam、影像編碼
-numpy            # 影像處理
+opencv-python    # webcam / image encoding
+numpy            # image processing

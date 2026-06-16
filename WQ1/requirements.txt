@@ -1,9 +1,7 @@
-# F1 離線會議記錄 — 需要的 Python 套件
-# 安裝：pip install -r requirements.txt
-#
-# 注意：連接 UGen300 的 hailort / Hailo-Ollama 不在這裡，
-#       那些要從 Hailo Developer Zone 下載、並安裝 Hailo-Ollama 服務，
-#       週一 Claude Code 會帶你裝（這是 F1 比 D4 多出來的環境步驟）。
+# Offline Meeting Notes — Python packages
+# Install: pip install -r requirements.txt
+# Note: hailort (the package that talks to UGen300) is NOT included here.
+#       Download the Windows build for Python 3.10 from the Hailo Developer Zone.
 
-sounddevice    # 麥克風錄音
-numpy          # 錄音資料處理
+sounddevice    # microphone recording
+numpy          # audio data processing

@@ -1,3 +1,6 @@
+# Air Instrument — Python packages
+# Install: pip install -r requirements.txt
+
 opencv-python
 numpy
-# 音效用 Windows 內建 winsound（免安裝）
+# Sound uses Windows built-in winsound (no install needed)

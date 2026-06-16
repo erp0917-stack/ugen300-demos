@@ -84,7 +84,7 @@ def main():
             prev = now
 
             frame = draw_detections(frame, detections, fps)
-            cv2.imshow("B1 UGen300 即時偵測（按 q 離開）", frame)
+            cv2.imshow("UGen300 Real-time Detection (press q to quit)", frame)
             if cv2.waitKey(1) & 0xFF == ord("q"):
                 break
     finally:

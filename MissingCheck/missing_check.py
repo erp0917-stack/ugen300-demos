@@ -325,7 +325,7 @@ def main():
                 last_debug = now
 
             frame = draw(frame, baseline, present_map, boxes_map, extras, fps, armed, flash_on)
-            cv2.imshow("#5 UGen300 漏件防呆（空白鍵設基準 / q 離開）", frame)
+            cv2.imshow("UGen300 Missing-Item Check (Space = set baseline, q = quit)", frame)
 
             key = cv2.waitKey(1) & 0xFF
             if key == ord("q"):

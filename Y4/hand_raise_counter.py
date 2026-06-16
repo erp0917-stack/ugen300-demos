@@ -71,7 +71,7 @@ def main():
             cv2.rectangle(frame, (0, 0), (w, 50), (26, 26, 46), -1)
             cv2.putText(frame, f"Hands up: {raised} / {total}", (12, 36),
                         cv2.FONT_HERSHEY_SIMPLEX, 1.0, (0, 212, 216), 2)
-            cv2.imshow("舉手統計（按 q 離開）", frame)
+            cv2.imshow("UGen300 Hand-Raise Counter (press q to quit)", frame)
             if cv2.waitKey(1) & 0xFF == ord("q"):
                 break
     finally:

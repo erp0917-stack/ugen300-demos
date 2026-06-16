@@ -59,7 +59,7 @@ def main():
             cv2.rectangle(frame, (0, 0), (w, 36), (26, 26, 46), -1)
             cv2.putText(frame, "SPACE=identify+recipe  1=identify 2=recipe  a=ask  q=quit",
                         (12, 25), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (0, 212, 216), 2)
-            cv2.imshow("冰箱大廚（按 q 離開）", frame)
+            cv2.imshow("UGen300 Fridge Chef (press q to quit)", frame)
             key = cv2.waitKey(1) & 0xFF
             if key == ord("q"):
                 break
