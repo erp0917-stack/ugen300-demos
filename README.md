@@ -59,7 +59,7 @@ Follow these steps in order.
 
 The apps talk to the UGen300 device through HailoRT. This is **not** a pip package, so you install it separately.
 
-1. Download HailoRT for the UGen300 from the ASUS UGen300 product support page, or from the Hailo Developer Zone.
+1. Download HailoRT for the UGen300 from the [ASUS UGen300 product support page](https://www.asus.com/motherboards-components/ai-accelerator/ugen/ugen300-usb-8g/helpdesk_download?model2Name=UGen300-USB-8G), or from the Hailo Developer Zone.
 2. Install the runtime and the USB driver.
 3. HailoRT includes the `hailo_platform` Python package. Make sure it is installed in the same Python 3.10 environment you will use to run the apps.
 
@@ -111,7 +111,7 @@ There are two ways to start an app.
 
 ### The easy way: one-click launchers
 
-The `launchers/` folder has `.bat` shortcuts for most of the apps. Just double-click the one you want, and the app starts. If an app does not have a launcher there, you can always start it with the command-line method below.
+The `launchers/` folder includes a `.bat` shortcut for every app. Just double-click the one you want, and the app starts. You can also start any app directly from the command line.
 
 ### The manual way: run from the command line
 
