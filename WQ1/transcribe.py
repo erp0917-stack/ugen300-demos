@@ -17,6 +17,7 @@ Whisper-Base 期待的音訊：16kHz / mono / float32 normalised (-1.0~1.0)。
 """
 import atexit
 import os
+import hailo_vdevice as _hailo_vdevice
 import sys
 import threading
 import time
@@ -67,7 +68,7 @@ def _ensure_loaded():
         try:
             print(f"[transcribe] 第一次使用：載入 Whisper 模型（約 2 秒）……", flush=True)
             t0 = time.time()
-            _VDEVICE = VDevice()
+            _VDEVICE = _hailo_vdevice.get()
             _STT = Speech2Text(_VDEVICE, str(hef))
             _LOADED = True
             print(f"[transcribe] Whisper 載入完成（{time.time()-t0:.1f}s）", flush=True)
@@ -78,7 +79,7 @@ def _ensure_loaded():
                 if _STT is not None: _STT.release()
             except Exception: pass
             try:
-                if _VDEVICE is not None: _VDEVICE.release()
+                if _VDEVICE is not None and os.environ.get("HAILO_RELEASE_VDEVICE") == "1": _VDEVICE.release()
             except Exception: pass
             _STT = None; _VDEVICE = None; _LOADED = False
             return None, f"[transcribe] 載入 Whisper 失敗：{type(e).__name__}: {e}"
@@ -92,8 +93,8 @@ def close():
         except Exception: pass
         _STT = None
     if _VDEVICE is not None:
-        try: _VDEVICE.release()
-        except Exception: pass
+        # 2026-09-10:Windows 9 月更新後 USB close 會失敗並讓 UGen300 掉線,預設不 release;HAILO_RELEASE_VDEVICE=1 切回
+        _hailo_vdevice.release()
         _VDEVICE = None
     _LOADED = False
 

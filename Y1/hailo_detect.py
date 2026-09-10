@@ -18,6 +18,7 @@ hailo_detect.py
    → runtime/python/object_detection
 """
 
+import os
 import numpy as np
 import cv2
 from coco_labels import COCO_LABELS
@@ -209,6 +210,11 @@ class ObjectDetector:
 
     def close(self):
         # 釋放 InferModel 的 configured 與 VDevice
+        # 2026-09-10:Windows 9 月更新後 USB close 會失敗並讓 UGen300 掉線,
+        # 預設不主動 release,讓程序結束時裝置自行重新列舉(實測可存活)。
+        # 需要舊行為時設環境變數 HAILO_RELEASE_VDEVICE=1。
+        if os.environ.get("HAILO_RELEASE_VDEVICE") != "1":
+            return
         try:
             cim = getattr(self, "configured", None)
             if cim is not None and hasattr(cim, "__exit__"):

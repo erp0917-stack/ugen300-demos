@@ -10,6 +10,7 @@ llm_client.py — Qwen2.5-1.5B-Instruct 純文字 LLM 客戶端
 
 import atexit
 import os
+import hailo_vdevice as _hailo_vdevice
 import threading
 import time
 import traceback
@@ -57,7 +58,7 @@ def _ensure_loaded():
         try:
             print("[llm_client] 第一次使用：載入 LLM 模型（約 8 秒）……", flush=True)
             t0 = time.time()
-            _VDEVICE = VDevice()
+            _VDEVICE = _hailo_vdevice.get()
             _LLM = LLM(_VDEVICE, str(hef))
             _LOADED = True
             print(f"[llm_client] LLM 載入完成（{time.time()-t0:.1f}s）", flush=True)
@@ -68,7 +69,7 @@ def _ensure_loaded():
                 if _LLM is not None: _LLM.release()
             except Exception: pass
             try:
-                if _VDEVICE is not None: _VDEVICE.release()
+                if _VDEVICE is not None and os.environ.get("HAILO_RELEASE_VDEVICE") == "1": _VDEVICE.release()
             except Exception: pass
             _LLM = None; _VDEVICE = None; _LOADED = False
             return None, f"[llm_client] 載入 LLM 失敗：{type(e).__name__}: {e}"
@@ -84,8 +85,8 @@ def close():
         except Exception: pass
         _LLM = None
     if _VDEVICE is not None:
-        try: _VDEVICE.release()
-        except Exception: pass
+        # 2026-09-10:Windows 9 月更新後 USB close 會失敗並讓 UGen300 掉線,預設不 release;HAILO_RELEASE_VDEVICE=1 切回
+        _hailo_vdevice.release()
         _VDEVICE = None
     _LOADED = False
 
