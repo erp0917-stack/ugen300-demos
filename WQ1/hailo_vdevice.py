@@ -13,12 +13,26 @@ import os
 _VDEVICE = None
 
 
-def get():
-    """回傳程序內唯一的 VDevice;第一次呼叫才建立。"""
+def get(retries=6, delay=1.5):
+    """回傳程序內唯一的 VDevice;第一次呼叫才建立。
+
+    上一個程式剛結束時,UGen300 會重新列舉 2~4 秒,這段期間建立 VDevice 會失敗
+    (HAILO_OUT_OF_PHYSICAL_DEVICES),所以自動重試幾次,現場「關 A 開 B」才不會撞到。
+    """
     global _VDEVICE
     if _VDEVICE is None:
+        import time
         from hailo_platform import VDevice
-        _VDEVICE = VDevice()
+        last = None
+        for i in range(retries):
+            try:
+                _VDEVICE = VDevice(); break
+            except Exception as e:  # noqa: BLE001
+                last = e
+                print(f"[hailo_vdevice] 裝置尚未就緒({i + 1}/{retries}),{delay}s 後重試…", flush=True)
+                time.sleep(delay)
+        if _VDEVICE is None:
+            raise last
     return _VDEVICE
 
 

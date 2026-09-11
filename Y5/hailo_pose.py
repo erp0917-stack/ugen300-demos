@@ -113,7 +113,8 @@ class PoseEstimator:
 
         # ===== 用新版 InferModel API（Hailo-10H / USB）載入模型 =====
         self.hef = HEF(hef_path)
-        self.vdevice = VDevice()
+        import hailo_vdevice
+        self.vdevice = hailo_vdevice.get()  # 單例 + 自動重試(見 hailo_vdevice.py)
         self.infer_model = self.vdevice.create_infer_model(hef_path)
         try:
             self.infer_model.set_batch_size(1)

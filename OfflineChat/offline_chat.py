@@ -79,6 +79,23 @@ class Bubble(QLabel):
     def append(self, s): self.setText(self.text() + s)
 
 
+class ThinkBubble(Bubble):
+    """Qwen3 的 <think> 內容:預設摺疊成一行「思考中…(點開)」,點一下展開/收合。"""
+    def __init__(self):
+        super().__init__("思考中…(點一下展開)", "think"); self.full = ""; self.expanded = False
+        self.setCursor(Qt.PointingHandCursor)
+
+    def append(self, s):
+        self.full += s; self._refresh()
+
+    def _refresh(self):
+        n = len(self.full)
+        self.setText(self.full if self.expanded else f"思考中…({n} 字,點一下展開)")
+
+    def mousePressEvent(self, e):
+        self.expanded = not self.expanded; self._refresh()
+
+
 class Chat(QMainWindow):
     net_sig = Signal(bool)
 
@@ -165,7 +182,7 @@ class Chat(QMainWindow):
     def _piece(self, kind, s):
         if kind == "think":
             if self.cur_think is None:
-                self.cur_think = Bubble("思考:", "think"); row = QHBoxLayout(); row.addWidget(self.cur_think); row.addStretch(1)
+                self.cur_think = ThinkBubble(); row = QHBoxLayout(); row.addWidget(self.cur_think); row.addStretch(1)
                 w = QWidget(); w.setLayout(row); self.feed_l.insertWidget(self.feed_l.count() - 2, w)
             self.cur_think.append(s)
         else:

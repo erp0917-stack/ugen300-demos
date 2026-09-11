@@ -45,6 +45,13 @@ The apps fall into three groups: pose and detection apps (Y series), vision-lang
 | **WakeUp** | An alarm you can only silence by doing five squats in front of the camera (pose estimation). Works on UGen200 too. |
 | **Calories** | Point the camera at a meal; the on-device VLM lists the items and estimates calories and protein, with a daily total. |
 | **OfflineChat** | A ChatGPT-style chat window streaming from Qwen3-1.7B (or Llama 3.2 1B) running entirely on the UGen300 — unplug the network and it keeps working. |
+| **GestureCaption** | Shows the hand gesture you make (1–5, OK, thumbs-up, heart, rock...) as large captions using 21 hand landmarks — rule based, no training. |
+| **FruitNinja** | Your index finger is the blade: slice fruit, avoid bombs, 30-second rounds. |
+| **AirBand** | Drums, piano and guitar zones on screen — several people can play at once with their hands. |
+| **PlateGate** | Vehicle detection + PaddleOCR reads the licence plate, checks a whitelist and animates a parking barrier (`--image` works without a real car). |
+| **TrafficCount** | Tracks people and vehicles crossing a line and shows per-class counts and flow per minute (`--video` for recorded footage). |
+| **HeadCount** | Real-time person counter with freeze, peak and a 60-second trend — pan the camera across a room. |
+| **EdgeVsCloud** | Side-by-side dashboard: measured UGen300 latency/fps vs measured network RTT plus cloud cost and power estimates. |
 | **PhotoRestore** | Drag in an old photo: brighten, denoise and 2x upscale on the accelerator, then compare before/after with a slider. Works on UGen200 too. |
 
 ## Requirements
@@ -107,6 +114,8 @@ Where to put each file:
 - **`yolov8s_pose.hef`** goes into each of the `Y2/`, `Y3/`, `Y4/`, `Y5/` and `WakeUp/` folders — one copy in each.
 - **`Qwen3-1.7B-Instruct.hef`** (and optionally `Llama3.2-1B-Instruct.hef`) go into `models/` for OfflineChat.
 - **`zero_dce.hef`, `dncnn_color_blind.hef`, `real_esrgan_x2.hef`** go into `PhotoRestore/`.
+- **`yolov8s.hef`** goes into `Traffic/` and `EdgeVsCloud/`; **`yolov8m.hef`** into `HeadCount/`; **`yolov8s_pose.hef` + `hand_landmark_lite.hef`** into `HandDemos/`; **`paddle_ocr_v5_mobile_detection.hef` + `paddle_ocr_v5_mobile_recognition.hef`** into `Traffic/` (all from the Hailo Model Zoo v5.4.0 HAILO10H list).
+- AirBand additionally needs `pip install pygame`.
 
 > **Note on model versions:** The YOLO models come from the Hailo Model Zoo (compiled for v5.3.0) and the GenAI models come from Hailo's public model server (v5.2.0). Both sets work together on the UGen300. We recommend installing HailoRT 5.3.x, which runs all of these models.
 

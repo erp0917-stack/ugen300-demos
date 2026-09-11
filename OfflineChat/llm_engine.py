@@ -92,7 +92,8 @@ class LLMEngine:
     def __init__(self):
         self.model_name = None; self.llm = None; self.vd = None
         self.history = []           # [{"role","content"}]
-        self._lock = threading.Lock()
+        self._lock = threading.Lock()   # 只保護載入/重設,不跨越串流
+        self._busy = False
         self.rate = TokRate()
 
     def load(self, name=DEFAULT_MODEL, on_status=None):
@@ -114,8 +115,10 @@ class LLMEngine:
         return self
 
     def reset(self):
+        self.history = []
+        if self._busy:
+            return  # 生成中不動 context,等這一則結束;歷史已清空
         with self._lock:
-            self.history = []
             if self.llm is not None:
                 try: self.llm.clear_context()
                 except Exception: pass
@@ -126,7 +129,11 @@ class LLMEngine:
         self.history.append({"role": "user", "content": user_text})
         prompt = [{"role": "system", "content": SYSTEM_PROMPT}] + self.history
         sp = ThinkSplitter(); self.rate.start(); full = ""
-        with self._lock:
+        # 注意:不在持鎖狀態下 yield(否則 UI 在生成中按「清除」會死等);以 busy 旗標防止重入
+        if self._busy:
+            raise RuntimeError("上一則還在生成中")
+        self._busy = True
+        try:
             try: self.llm.clear_context()
             except Exception: pass
             with self.llm.generate(prompt=prompt, max_generated_tokens=max_tokens,
@@ -145,6 +152,8 @@ class LLMEngine:
                     td, ad = sp.feed(piece)
                     if td: yield "think", td
                     if ad: yield "answer", ad
+        finally:
+            self._busy = False
         td, ad = sp.flush()
         if td: yield "think", td
         if ad: yield "answer", ad

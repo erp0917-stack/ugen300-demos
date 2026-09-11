@@ -44,7 +44,7 @@ def compose(frame, hands, labels, fps, err=None):
         draw_text(canvas, label if label != "?" else "…", (px + PANEL_W // 2, y + 90), 120 if len(label) <= 2 else 64, C_OK if label != "?" else C_DIM, anchor="mm")
         draw_text(canvas, text, (px + PANEL_W // 2, y + 175), 22, C_ACC, anchor="mm")
     draw_text(canvas, f"{fps:.0f} fps", (px + 24, CANVAS_H - 90), 18, C_DIM)
-    draw_text(canvas, "h 手勢表  q 離開", (px + 24, CANVAS_H - 60), 20, C_DIM)
+    draw_text(canvas, "h 手勢表  r 重置  q 離開", (px + 24, CANVAS_H - 60), 20, C_DIM)
     return canvas
 
 
@@ -91,6 +91,7 @@ def main():
             k = cv2.waitKey(1) & 0xFF
             if k == ord("q"): break
             if k == ord("h"): show_cheat = not show_cheat
+            if k == ord("r"): smoothers = {"R": GestureSmoother(4), "L": GestureSmoother(4)}
     finally:
         cap.release(); cv2.destroyAllWindows()
         if tr: tr.close()

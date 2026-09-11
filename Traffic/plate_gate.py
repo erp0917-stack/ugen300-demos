@@ -29,9 +29,19 @@ VEHICLES = {"car", "truck", "bus", "motorcycle"}
 C_BG, C_PANEL, C_TXT, C_DIM, C_OK, C_NO, C_ACC = (24, 24, 28), (36, 36, 42), (240, 240, 240), (150, 150, 150), (80, 220, 120), (60, 60, 230), (255, 170, 40)
 
 
+WL_WARNING = None   # 白名單檔壞掉時的訊息,顯示在面板上而不是靜默吞掉
+
+
 def load_wl():
-    try: return set(json.load(open(WL_PATH, encoding="utf-8")))
-    except Exception: return {"ABC-1234"}
+    """沒有檔案 → 用預設示範白名單;檔案存在但壞掉 → 空白名單 + 面板警告(不能靜默放行/擋人)。"""
+    global WL_WARNING
+    if not os.path.exists(WL_PATH):
+        return {"ABC-1234"}
+    try:
+        data = json.load(open(WL_PATH, encoding="utf-8"))
+        return set(str(x).upper() for x in data)
+    except (OSError, ValueError) as e:
+        WL_WARNING = f"whitelist.json 讀取失敗:{type(e).__name__}"; return set()
 
 
 def save_wl(wl):
@@ -95,8 +105,8 @@ def compose(frame, dets, plates, last, gate, wl, mode, err=None):
         draw_text(canvas, f"{last['dt']*1000:.0f} ms", (px + PANEL // 2, 515), 18, C_DIM, anchor="mm")
     else:
         draw_text(canvas, "等待車輛…" if mode == "auto" else "按空白鍵辨識", (px + PANEL // 2, 440), 28, C_DIM, anchor="mm")
-    draw_text(canvas, f"白名單 {len(wl)} 筆", (px + 24, H - 130), 20, C_DIM)
-    draw_text(canvas, "空白鍵 辨識  a 加入白名單  q 離開", (px + 24, H - 60), 20, C_DIM)
+    draw_text(canvas, f"白名單 {len(wl)} 筆" + (f"  警告:{WL_WARNING}" if WL_WARNING else ""), (px + 24, H - 130), 20, C_NO if WL_WARNING else C_DIM)
+    draw_text(canvas, "空白鍵 辨識  a 加入白名單  r 清除  q 離開", (px + 24, H - 60), 20, C_DIM)
     return canvas
 
 
@@ -154,6 +164,7 @@ def main():
             if k == ord(" ") or (args.snapshot and frames == 3): do = True
             if args.auto and has_vehicle and time.time() - last_auto > 4: do = True
             if k == ord("a") and last: wl.add(last["plate"]); save_wl(wl)
+            if k == ord("r"): last = None; plates = []; gate = Gate()
             if do and ocr:
                 t = time.time(); plates = find_plates(ocr, frame, dets); dt = time.time() - t; last_auto = time.time()
                 if plates:

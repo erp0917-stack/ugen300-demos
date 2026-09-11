@@ -62,7 +62,8 @@ class ObjectDetector:
         # ===== 載入模型到 UGen300（InferModel 新版 API，對應 USB / Hailo-10H）=====
         # 實機確認：VDevice() 可開、VDevice 有 create_infer_model、裝置為 usb/xxx。
         # 舊的 ConfigureParams + InferVStreams 不支援此 USB 裝置，改用 InferModel。
-        self.vdevice = VDevice()
+        import hailo_vdevice
+        self.vdevice = hailo_vdevice.get()  # 單例 + 自動重試(見 hailo_vdevice.py)
         self.infer_model = self.vdevice.create_infer_model(hef_path)
         try:
             self.infer_model.set_batch_size(1)

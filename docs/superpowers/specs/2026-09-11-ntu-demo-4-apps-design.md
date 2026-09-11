@@ -19,7 +19,7 @@
 ## 1. WakeUp —— 早八起床驗證(#7)
 
 - 技術:`yolov8s_pose.hef` + `hailo_pose.PoseEstimator`(複製自 Y5),膝角計算沿用 `yoga_logic._angle`。
-- 流程:時鐘畫面(顯示 07:59 → 08:00)→ 響鈴(winsound 循環,獨立執行緒)+ 大字「做 N 下深蹲才能關鬧鐘」→ 偵測到人 → 狀態機:膝角 < 100° 進入「蹲下」、> 160° 回「站立」且計 1 下 → 大數字計次 → 達 N → 停鈴、勝利音效、「驗證通過,早安!」。
+- 流程:時鐘畫面(顯示 07:59 → 08:00)→ 響鈴(winsound 循環,獨立執行緒)+ 大字「做 N 下深蹲才能關鬧鐘」→ 偵測到人 → 狀態機:膝角 < 105° 進入「蹲下」、> 160° 回「站立」且計 1 下(105° 而非 100°:一般人半蹲即可達標,台上較不尷尬;可用 `SquatCounter(down_deg=)` 調整)→ 大數字計次 → 達 N → 停鈴、勝利音效、「驗證通過,早安!」。
 - 參數:`--reps 5 --source 0 --conf 0.3`。
 - 主程式 `wakeup.py`;邏輯 `squat_counter.py`(純函式,可離線單元測試)。
 
@@ -33,7 +33,8 @@
 
 - 技術:`hailo_platform.genai.LLM` 直接載 `../models/Qwen3-1.7B-Instruct.hef`(不走 hailo-ollama,其 qwen3 blob 需上網 pull);PySide6 視窗。
 - 流程:啟動即載模型(顯示載入進度)→ 深色聊天介面(氣泡、輸入框、Enter 送出)→ `generate()` 逐 token 串流顯示 → 標頭顯示「已離線 · 0 元/月 · X token/秒」。
-- 模型切換:下拉可選 `Qwen3-1.7B` / `Llama3.2-1B` / `Qwen2.5-1.5B`(切換 = 釋放模型層物件再載入,VDevice 不動)。
+- 模型切換:下拉可選 `Qwen3-1.7B` / `Llama3.2-1B` / `Qwen2.5-1.5B`。**實測 HailoRT 5.3.2 在同一程序內釋放 LLM 再載入另一個會 HAILO_INTERNAL_FAILURE(8)**,因此切換 = 以 `--model` 參數重啟程序(2026-09-11 修訂)。
+- 畫面規範中的「`q` 離開 / `r` 重來」適用 OpenCV 視窗;PySide6 視窗以按鈕(清除對話 / 開啟照片)取代。
 - Qwen3 的 `<think>` 區塊:預設摺疊顯示為「思考中…」,可展開。
 - 主程式 `offline_chat.py`;LLM 包裝 `llm_engine.py`(串流、tok/s 統計、模型切換)。
 
