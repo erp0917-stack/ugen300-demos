@@ -55,13 +55,13 @@ def exit_now(code=0):
 
     HAILO_HARD_EXIT=1 時用 os._exit 跳過 Python 收尾:HailoRT 的解構子不會送出那個在 Windows 2026-09
     更新後必定失敗的 USB close 訊息(LIBUSB_ERROR_IO),由作業系統直接收回 handle。
-    預設 0(正常結束)。切成預設前需用 scripts/exit_stress.py 實測裝置存活率與 USB 位址是否不變。
+    2026-09-11 以 scripts/exit_stress.py 實測 8 輪:位址不變、全數存活 → 預設 1。設 HAILO_HARD_EXIT=0 可切回一般結束。
     """
     import sys
     try:
         sys.stdout.flush(); sys.stderr.flush()
     except Exception:
         pass
-    if os.environ.get("HAILO_HARD_EXIT", "0") == "1":
+    if os.environ.get("HAILO_HARD_EXIT", "1") == "1":
         os._exit(code)
     sys.exit(code)
