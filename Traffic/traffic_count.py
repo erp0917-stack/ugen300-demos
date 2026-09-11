@@ -110,4 +110,6 @@ def main():
 
 
 if __name__ == "__main__":
+    import hailo_vdevice
     main()
+    hailo_vdevice.exit_now()

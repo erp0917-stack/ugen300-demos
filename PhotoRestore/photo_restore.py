@@ -182,7 +182,9 @@ def main():
         e = RestoreEngine(); t = time.time(); e.load(on_status=print)
         out = e.pipeline(img, set(ORDER), {"brighten": 0.65}); print(f"[selftest] OK {time.time() - t:.1f}s -> {out.shape}"); return
     app = QApplication(sys.argv); app.setStyleSheet(STYLE)
-    w = Win(args.image, args.snapshot); w.show(); sys.exit(app.exec())
+    w = Win(args.image, args.snapshot); w.show(); code = app.exec()
+    import hailo_vdevice
+    hailo_vdevice.exit_now(code)
 
 
 if __name__ == "__main__":

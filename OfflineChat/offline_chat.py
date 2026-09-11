@@ -227,7 +227,9 @@ def main():
         print(f"[selftest] {args.model} OK | {e.rate.tps:.1f} tok/s | {ans[:80]}"); return
     app = QApplication(sys.argv); app.setStyleSheet(STYLE)
     w = Chat(args.model, args.snapshot); w.show()
-    sys.exit(app.exec())
+    code = app.exec()
+    import hailo_vdevice
+    hailo_vdevice.exit_now(code)
 
 
 if __name__ == "__main__":
