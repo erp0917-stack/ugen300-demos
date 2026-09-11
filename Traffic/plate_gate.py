@@ -20,6 +20,7 @@ import numpy as np
 from hailo_detect import ObjectDetector as HailoDetector
 from ocr_engine import OCREngine, normalize_plate
 from ui_text import draw_text, badge
+from camera import open_camera
 
 WIN = "UGen300 Plate Gate"
 W, H, PANEL = 1280, 720, 440
@@ -128,7 +129,7 @@ def find_plates(ocr, frame, dets):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--source", type=int, default=0); ap.add_argument("--image", default="")
+    ap.add_argument("--source", default="auto", help="auto=外接優先,否則內建;或指定編號 0/1"); ap.add_argument("--image", default="")
     ap.add_argument("--fullscreen", action="store_true"); ap.add_argument("--selftest", action="store_true"); ap.add_argument("--snapshot", default="")
     ap.add_argument("--auto", action="store_true", help="看到車就自動辨識(預設按空白鍵)")
     args = ap.parse_args()
@@ -138,8 +139,7 @@ def main():
     except Exception as e:  # noqa: BLE001
         err = f"模型載入失敗:{e}"
     still = cv2.imread(args.image) if args.image else None
-    cap = None if still is not None else cv2.VideoCapture(args.source, cv2.CAP_DSHOW)
-    if cap is not None: cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1280); cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 720)
+    cap = None if still is not None else open_camera(args.source)[0]
     wl = load_wl(); gate = Gate(); last = None; plates = []; dets = []
     if args.selftest:
         frame = still if still is not None else cap.read()[1]

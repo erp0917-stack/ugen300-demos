@@ -16,6 +16,7 @@ import numpy as np
 
 from nutrition import PROMPT, parse_items, totals, DailyLog
 from ui_text import draw_text, badge
+from camera import open_camera
 
 WIN = "UGen300 Calories"
 CANVAS_W, CANVAS_H, PANEL_W = 1280, 720, 470
@@ -108,7 +109,7 @@ def compose(view, phase, countdown, an, log, spin):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--source", type=int, default=0)
+    ap.add_argument("--source", default="auto", help="auto=外接優先,否則內建;或指定編號 0/1")
     ap.add_argument("--image", default="", help="分析指定圖片(不用鏡頭)")
     ap.add_argument("--fullscreen", action="store_true")
     ap.add_argument("--selftest", action="store_true")
@@ -123,8 +124,7 @@ def main():
         if still is None:
             print("讀不到圖片:", args.image); return
     else:
-        cap = cv2.VideoCapture(args.source, cv2.CAP_DSHOW)
-        cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1280); cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 720)
+        cap, cam_idx, cam_name = open_camera(args.source)
 
     if args.selftest:
         frame = still if still is not None else cap.read()[1]

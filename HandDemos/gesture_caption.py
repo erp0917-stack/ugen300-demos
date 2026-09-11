@@ -15,6 +15,7 @@ import numpy as np
 from hand_tracker import HandTracker, draw_hand
 from gestures import classify, GestureSmoother
 from ui_text import draw_text, badge
+from camera import open_camera
 
 WIN = "UGen300 Gesture Caption"
 CANVAS_W, CANVAS_H, PANEL_W = 1280, 720, 400
@@ -50,7 +51,7 @@ def compose(frame, hands, labels, fps, err=None):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--source", type=int, default=0); ap.add_argument("--fullscreen", action="store_true")
+    ap.add_argument("--source", default="auto", help="auto=外接優先,否則內建;或指定編號 0/1"); ap.add_argument("--fullscreen", action="store_true")
     ap.add_argument("--selftest", action="store_true"); ap.add_argument("--snapshot", default="")
     args = ap.parse_args()
     err = None; tr = None
@@ -58,7 +59,7 @@ def main():
         tr = HandTracker()
     except Exception as e:  # noqa: BLE001
         err = f"模型載入失敗:{type(e).__name__}\n{e}\n請確認 UGen300 已插上。"
-    cap = cv2.VideoCapture(args.source, cv2.CAP_DSHOW); cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1280); cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 720)
+    cap, cam_idx, cam_name = open_camera(args.source)
     if args.selftest:
         ok, f = cap.read(); hs = tr.update(cv2.flip(f, 1)) if (ok and tr) else []
         print(f"[selftest] 鏡頭={'OK' if ok else 'FAIL'} 模型={'OK' if tr else 'FAIL'} 手={len(hs)}"); cap.release(); return

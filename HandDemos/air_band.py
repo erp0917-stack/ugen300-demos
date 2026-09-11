@@ -17,6 +17,7 @@ import numpy as np
 
 from hailo_pose import PoseEstimator
 from ui_text import draw_text, badge
+from camera import open_camera
 
 WIN = "UGen300 Air Band"
 W, H = 1280, 720
@@ -132,7 +133,7 @@ def draw_stage(canvas, flash):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--source", type=int, default=0); ap.add_argument("--fullscreen", action="store_true")
+    ap.add_argument("--source", default="auto", help="auto=外接優先,否則內建;或指定編號 0/1"); ap.add_argument("--fullscreen", action="store_true")
     ap.add_argument("--selftest", action="store_true"); ap.add_argument("--snapshot", default="")
     args = ap.parse_args()
     err = None; pose = None; mixer = None
@@ -144,7 +145,7 @@ def main():
         mixer = Mixer()
     except Exception as e:  # noqa: BLE001
         err = (err + "\n" if err else "") + f"音效初始化失敗:{e}(pip install pygame)"
-    cap = cv2.VideoCapture(args.source, cv2.CAP_DSHOW); cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1280); cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 720)
+    cap, cam_idx, cam_name = open_camera(args.source)
     if args.selftest:
         ok, f = cap.read(); ppl = pose.infer_multi(cv2.flip(f, 1)) if (ok and pose) else []
         if mixer: mixer.piano(0); mixer.drum("kick"); mixer.chord(0); time.sleep(0.6)

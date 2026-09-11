@@ -18,6 +18,7 @@ import numpy as np
 
 from hailo_detect import ObjectDetector
 from ui_text import draw_text, badge
+from camera import open_camera
 
 WIN = "UGen300 Edge vs Cloud"
 W, H = 1280, 720
@@ -95,7 +96,7 @@ def compose(frame, dets, edge_ms, fps, frames_total, net, elapsed, err=None):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--source", type=int, default=0); ap.add_argument("--fullscreen", action="store_true")
+    ap.add_argument("--source", default="auto", help="auto=外接優先,否則內建;或指定編號 0/1"); ap.add_argument("--fullscreen", action="store_true")
     ap.add_argument("--selftest", action="store_true"); ap.add_argument("--snapshot", default="")
     args = ap.parse_args()
     err = None; det = None
@@ -103,7 +104,7 @@ def main():
         det = ObjectDetector("yolov8s.hef", conf_threshold=0.4)
     except Exception as e:  # noqa: BLE001
         err = f"模型載入失敗:{e}"
-    cap = cv2.VideoCapture(args.source, cv2.CAP_DSHOW); cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1280); cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 720)
+    cap, cam_idx, cam_name = open_camera(args.source)
     net = NetProbe()
     if args.selftest:
         ok, f = cap.read(); t = time.time(); d = det.infer(f) if (ok and det) else []; ms = (time.time() - t) * 1000

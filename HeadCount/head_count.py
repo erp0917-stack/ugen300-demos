@@ -15,6 +15,7 @@ import numpy as np
 
 from hailo_detect import ObjectDetector
 from ui_text import draw_text, badge
+from camera import open_camera
 
 WIN = "UGen300 Head Count"
 W, H, PANEL = 1280, 720, 420
@@ -52,7 +53,7 @@ def compose(frame, people, count, peak, history, fps, err=None):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--source", type=int, default=0); ap.add_argument("--conf", type=float, default=0.3); ap.add_argument("--hef", default="yolov8m.hef")
+    ap.add_argument("--source", default="auto", help="auto=外接優先,否則內建;或指定編號 0/1"); ap.add_argument("--conf", type=float, default=0.3); ap.add_argument("--hef", default="yolov8m.hef")
     ap.add_argument("--fullscreen", action="store_true"); ap.add_argument("--selftest", action="store_true"); ap.add_argument("--snapshot", default="")
     args = ap.parse_args()
     err = None; det = None
@@ -60,7 +61,7 @@ def main():
         det = ObjectDetector(args.hef, conf_threshold=args.conf)
     except Exception as e:  # noqa: BLE001
         err = f"模型載入失敗:{e}"
-    cap = cv2.VideoCapture(args.source, cv2.CAP_DSHOW); cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1280); cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 720)
+    cap, cam_idx, cam_name = open_camera(args.source)
     if args.selftest:
         ok, f = cap.read(); d = [(s, b) for l, s, b in det.infer(f) if l == "person"] if (ok and det) else []
         print(f"[selftest] 鏡頭={'OK' if ok else 'FAIL'} 模型={'OK' if det else 'FAIL'} 人數={len(d)}"); return

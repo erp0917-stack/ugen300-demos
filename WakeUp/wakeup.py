@@ -17,6 +17,7 @@ import numpy as np
 from hailo_pose import PoseEstimator
 from squat_counter import SquatCounter
 from ui_text import draw_text, badge
+from camera import open_camera
 from victory_sound import play_victory
 
 WIN = "UGen300 WakeUp"
@@ -110,7 +111,7 @@ def compose(frame, phase, counter, reps, clock_txt, ringing, err=None):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--hef", default="yolov8s_pose.hef")
-    ap.add_argument("--source", type=int, default=0)
+    ap.add_argument("--source", default="auto", help="auto=外接優先,否則內建;或指定編號 0/1")
     ap.add_argument("--reps", type=int, default=5)
     ap.add_argument("--conf", type=float, default=0.3)
     ap.add_argument("--clock", type=float, default=4.0, help="時鐘畫面秒數後自動響鈴")
@@ -126,8 +127,7 @@ def main():
     except Exception as e:  # 讓畫面顯示錯誤而不是閃退
         err = f"模型載入失敗:{type(e).__name__}\n{e}\n\n請確認 UGen300 已插上、\n{args.hef} 存在。"
 
-    cap = cv2.VideoCapture(args.source, cv2.CAP_DSHOW)
-    cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1280); cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 720)
+    cap, cam_idx, cam_name = open_camera(args.source)
     if not cap.isOpened():
         err = (err or "") + f"\n鏡頭 {args.source} 打不開,試 --source 1"
 

@@ -20,6 +20,7 @@ import numpy as np
 from hailo_detect import ObjectDetector as HailoDetector
 from tracker import CentroidTracker, LineCounter
 from ui_text import draw_text, badge
+from camera import open_camera
 
 WIN = "UGen300 Traffic Count"
 W, H, PANEL = 1280, 720, 400
@@ -60,7 +61,7 @@ def compose(frame, tracks, line_y_rel, counter, rate_per_min, fps, err=None):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--source", type=int, default=0); ap.add_argument("--video", default="")
+    ap.add_argument("--source", default="auto", help="auto=外接優先,否則內建;或指定編號 0/1"); ap.add_argument("--video", default="")
     ap.add_argument("--line", type=float, default=0.6, help="計數線位置(畫面高度比例)")
     ap.add_argument("--fullscreen", action="store_true"); ap.add_argument("--selftest", action="store_true"); ap.add_argument("--snapshot", default="")
     args = ap.parse_args()
@@ -69,8 +70,7 @@ def main():
         det = HailoDetector("yolov8s.hef", conf_threshold=0.35)
     except Exception as e:  # noqa: BLE001
         err = f"模型載入失敗:{e}"
-    cap = cv2.VideoCapture(args.video) if args.video else cv2.VideoCapture(args.source, cv2.CAP_DSHOW)
-    if not args.video: cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1280); cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 720)
+    cap = cv2.VideoCapture(args.video) if args.video else open_camera(args.source)[0]
     if args.selftest:
         ok, f = cap.read(); d = det.infer(f) if (ok and det) else []
         print(f"[selftest] 鏡頭={'OK' if ok else 'FAIL'} 模型={'OK' if det else 'FAIL'} 物件={[(l, round(s, 2)) for l, s, _ in d][:5]}"); return
