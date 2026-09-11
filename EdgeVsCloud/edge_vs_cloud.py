@@ -71,15 +71,15 @@ def compose(frame, dets, edge_ms, fps, frames_total, net, elapsed, err=None):
     draw_text(canvas, "UGen300 邊緣", (xE, 90), 28, C_OK); draw_text(canvas, "雲端 API", (xC, 90), 28, C_ACC)
     rows = []
     cloud_total = (net.rtt_ms or 0) * 2 + CLOUD_INFER_MS if net.online else None
-    rows.append(("每張延遲", f"{edge_ms:.0f} ms", f"{cloud_total:.0f} ms" if cloud_total else "離線:無法使用", edge_ms / 1000, (cloud_total or 1000) / 1000))
+    rows.append(("每張延遲", f"{edge_ms:.0f} ms", f"{cloud_total:.0f} ms(估)" if cloud_total else "離線:無法使用", edge_ms / 1000, (cloud_total or 1000) / 1000))
     rows.append(("其中網路往返", "0 ms(不用網路)", f"{net.rtt_ms * 2:.0f} ms(實測)" if net.rtt_ms else "—", 0, ((net.rtt_ms or 0) * 2) / 1000))
     rows.append(("處理速度", f"{fps:.0f} 張/秒", f"{1000 / cloud_total:.1f} 張/秒" if cloud_total else "—", min(1, fps / 60), min(1, (1000 / cloud_total if cloud_total else 0) / 60)))
     usd = frames_total * CLOUD_USD_PER_1000 / 1000
     monthly = fps * 3600 * 8 * 22 * CLOUD_USD_PER_1000 / 1000  # 每天 8 小時、每月 22 天
     rows.append(("目前已處理", f"{frames_total:,} 張", f"{frames_total:,} 張", 0, 0))
-    rows.append(("費用", "0 元(一次買斷)", f"US${usd:,.2f} ≈ NT${usd * USD_TWD:,.0f}", 0, min(1, usd / 5)))
-    rows.append(("以此速度跑一個月", "0 元", f"US${monthly:,.0f} ≈ NT${monthly * USD_TWD:,.0f}", 0, 1))
-    rows.append(("功耗(規格參考)", f"≈{UGEN_WATT} W", f"≈{CLOUD_WATT} W(GPU)", UGEN_WATT / CLOUD_WATT, 1))
+    rows.append(("費用", "0 元(一次買斷)", f"US${usd:,.2f} 約 NT${usd * USD_TWD:,.0f}", 0, min(1, usd / 5)))
+    rows.append(("以此速度跑一個月", "0 元", f"US${monthly:,.0f} 約 NT${monthly * USD_TWD / 10000:.1f} 萬", 0, 1))
+    rows.append(("功耗(規格參考)", f"約 {UGEN_WATT} W", f"約 {CLOUD_WATT} W(GPU)", UGEN_WATT / CLOUD_WATT, 1))
     rows.append(("影像去哪", "不出這台電腦", "上傳到別人的伺服器", 0, 0))
     y = 140
     for name, ev, cv_, ef, cf in rows:
@@ -89,7 +89,7 @@ def compose(frame, dets, edge_ms, fps, frames_total, net, elapsed, err=None):
             bar(canvas, xE, y + 56, cw, 8, ef, C_OK); bar(canvas, xC, y + 56, cw, 8, cf, C_ACC)
         y += 72
     draw_text(canvas, f"網路:{'連線中' if net.online else '已斷線'} · 雲端單價 US${CLOUD_USD_PER_1000}/千張、伺服器端 {CLOUD_INFER_MS} ms 為參考值 · 已跑 {elapsed:.0f} 秒", (20, H - 40), 16, C_DIM)
-    draw_text(canvas, "r 歸零  q 離開", (W - 160, H - 40), 16, C_DIM)
+    draw_text(canvas, "r 歸零  q 離開", (W - 150, 62), 16, C_DIM)
     return canvas
 
 
