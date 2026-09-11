@@ -23,3 +23,4 @@ __pycache__/
 WQ1/meeting.wav
 # 產生的範例語音
 models/sample_audio_*.wav
+today.json
