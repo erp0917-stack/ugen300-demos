@@ -38,6 +38,15 @@ The apps fall into three groups: pose and detection apps (Y series), vision-lang
 | **Face Report** | Generates a fun, full-page face report using two AI models working together. |
 | **Meeting Notes** | Records a meeting, transcribes it, and writes a summary. Comes with both a command-line version and a desktop (GUI) version. |
 
+### Everyday & Creative (added 2026-09)
+
+| App | What it does |
+|-----|--------------|
+| **WakeUp** | An alarm you can only silence by doing five squats in front of the camera (pose estimation). Works on UGen200 too. |
+| **Calories** | Point the camera at a meal; the on-device VLM lists the items and estimates calories and protein, with a daily total. |
+| **OfflineChat** | A ChatGPT-style chat window streaming from Qwen3-1.7B (or Llama 3.2 1B) running entirely on the UGen300 — unplug the network and it keeps working. |
+| **PhotoRestore** | Drag in an old photo: brighten, denoise and 2x upscale on the accelerator, then compare before/after with a slider. Works on UGen200 too. |
+
 ## Requirements
 
 ### Hardware
@@ -85,12 +94,19 @@ There are 5 model files. Download each one from the link below:
 | `Whisper-Base.hef` | `https://dev-public.hailo.ai/v5.2.0/blob/Whisper-Base.hef` | Meeting Notes |
 | `Qwen2.5-1.5B-Instruct.hef` | `https://dev-public.hailo.ai/v5.2.0/blob/Qwen2.5-1.5B-Instruct.hef` | Face Report, Meeting Notes |
 | `Qwen2-VL-2B-Instruct.hef` | `https://dev-public.hailo.ai/v5.2.0/blob/Qwen2-VL-2B-Instruct.hef` | V1, V2, V3, Face Report |
+| `Qwen3-1.7B-Instruct.hef` | `https://dev-public.hailo.ai/v5.3.0/blob/Qwen3-1.7B-Instruct.hef` | OfflineChat |
+| `Llama3.2-1B-Instruct.hef` | `https://dev-public.hailo.ai/v5.3.0/blob/Llama3.2-1B-Instruct.hef` | OfflineChat (optional) |
+| `zero_dce.hef` | `https://hailo-model-zoo.s3.eu-west-2.amazonaws.com/ModelZoo/Compiled/v5.4.0/hailo10h/zero_dce.hef` | PhotoRestore |
+| `dncnn_color_blind.hef` | `https://hailo-model-zoo.s3.eu-west-2.amazonaws.com/ModelZoo/Compiled/v5.4.0/hailo10h/dncnn_color_blind.hef` | PhotoRestore |
+| `real_esrgan_x2.hef` | `https://hailo-model-zoo.s3.eu-west-2.amazonaws.com/ModelZoo/Compiled/v5.4.0/hailo10h/real_esrgan_x2.hef` | PhotoRestore |
 
 Where to put each file:
 
 - **The three large GenAI models** (`Whisper-Base.hef`, `Qwen2.5-1.5B-Instruct.hef`, and `Qwen2-VL-2B-Instruct.hef`) go into the shared `models/` folder.
 - **`yolov8m.hef`** goes into both the `Y1/` folder and the `MissingCheck/` folder — one copy in each.
-- **`yolov8s_pose.hef`** goes into each of the `Y2/`, `Y3/`, `Y4/`, and `Y5/` folders — one copy in each.
+- **`yolov8s_pose.hef`** goes into each of the `Y2/`, `Y3/`, `Y4/`, `Y5/` and `WakeUp/` folders — one copy in each.
+- **`Qwen3-1.7B-Instruct.hef`** (and optionally `Llama3.2-1B-Instruct.hef`) go into `models/` for OfflineChat.
+- **`zero_dce.hef`, `dncnn_color_blind.hef`, `real_esrgan_x2.hef`** go into `PhotoRestore/`.
 
 > **Note on model versions:** The YOLO models come from the Hailo Model Zoo (compiled for v5.3.0) and the GenAI models come from Hailo's public model server (v5.2.0). Both sets work together on the UGen300. We recommend installing HailoRT 5.3.x, which runs all of these models.
 
