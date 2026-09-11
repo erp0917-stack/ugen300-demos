@@ -25,3 +25,6 @@ WQ1/meeting.wav
 models/sample_audio_*.wav
 today.json
 fruit_best.json
+Traffic/whitelist.json
+Traffic/gate_log.csv
+Traffic/count_log.csv
