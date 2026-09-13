@@ -5,7 +5,6 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import attention as A  # noqa: E402
 
-FH = 720
 
 
 def person(nose=(100, 100), eyes=((90, 95), (110, 95)), ears=((80, 100), (120, 100)), sho=((60, 160), (140, 160)),
@@ -20,46 +19,46 @@ def person(nose=(100, 100), eyes=((90, 95), (110, 95)), ears=((80, 100), (120, 1
 
 
 def test_attentive_default():
-    f = A.instant_flags(person(), FH); assert not any(f.values()), f
+    f = A.instant_flags(person()); assert not any(f.values()), f
 
 
 def test_laptop_viewer_is_not_head_down():
     """筆電鏡頭俯視、頭低 10° 看螢幕:眼睛比耳朵低約 0.08 肩寬、鼻子距肩線 0.27 肩寬 → 不算低頭。"""
-    f = A.instant_flags(person(eyes=((90, 106), (110, 106)), nose=(100, 138)), FH)
+    f = A.instant_flags(person(eyes=((90, 106), (110, 106)), nose=(100, 138)))
     assert not f["head_down"] and not f["sleeping"], f
 
 
 def test_real_head_down():
-    assert A.instant_flags(person(eyes=((90, 112), (110, 112))), FH)["head_down"]        # 眼低於耳 0.15 肩寬
-    assert A.instant_flags(person(nose=(100, 148)), FH)["head_down"]                     # 鼻距肩線 0.15 肩寬
+    assert A.instant_flags(person(eyes=((90, 112), (110, 112))))["head_down"]        # 眼低於耳 0.15 肩寬
+    assert A.instant_flags(person(nose=(100, 148)))["head_down"]                     # 鼻距肩線 0.15 肩寬
 
 
 def test_raise_hand_needs_elbow_up_and_wrist_well_above_eyes():
-    assert A.instant_flags(person(elbows=((45, 120), (155, 220)), wrists=((50, 20), (150, 260))), FH)["raise_"]   # 眼線 95,手腕 20:高 75 > 0.6*80
-    assert not A.instant_flags(person(wrists=((50, 90), (150, 260))), FH)["raise_"]      # 摸頭:手肘還在肩下
-    assert not A.instant_flags(person(elbows=((45, 120), (155, 220)), wrists=((50, 60), (150, 260))), FH)["raise_"]   # 撥瀏海:手腕只比眼線高 35
-    assert A.instant_flags(person(elbows=((45, 60), (155, 220)), hide=(9,)), FH)["raise_"]    # 手腕出框、手肘高於眼線
-    assert not A.instant_flags(person(elbows=((45, 120), (155, 220)), hide=(9,)), FH)["raise_"]   # 手腕出框但手肘只到肩上
+    assert A.instant_flags(person(elbows=((45, 120), (155, 220)), wrists=((50, 20), (150, 260))))["raise_"]   # 眼線 95,手腕 20:高 75 > 0.6*80
+    assert not A.instant_flags(person(wrists=((50, 90), (150, 260))))["raise_"]      # 摸頭:手肘還在肩下
+    assert not A.instant_flags(person(elbows=((45, 120), (155, 220)), wrists=((50, 60), (150, 260))))["raise_"]   # 撥瀏海:手腕只比眼線高 35
+    assert A.instant_flags(person(elbows=((45, 60), (155, 220)), hide=(9,)))["raise_"]    # 手腕出框、手肘高於眼線
+    assert not A.instant_flags(person(elbows=((45, 120), (155, 220)), hide=(9,)))["raise_"]   # 手腕出框但手肘只到肩上
 
 
 def test_sleeping_nose_below_shoulder():
-    assert A.instant_flags(person(nose=(100, 170)), FH)["sleeping"]
+    assert A.instant_flags(person(nose=(100, 170)))["sleeping"]
 
 
 def test_head_missing_is_never_sleeping():
     for k in (person(hide=(0, 1, 2)), person(hide=(0, 1, 2), dy=400), person(hide=(0, 1, 2, 3, 4))):   # 出框、背對都不判
-        f = A.instant_flags(k, FH); assert not f["sleeping"] and not f["head_down"] and not f["turned"]
+        f = A.instant_flags(k); assert not f["sleeping"] and not f["head_down"] and not f["turned"]
 
 
 def test_far_small_person_skips_face_rules():
     small = person(nose=(100, 100), eyes=((97, 97), (103, 97)), ears=((95, 100), (105, 100)), sho=((85, 120), (115, 120)), hide=(2,))
-    f = A.instant_flags(small, FH); assert not f["turned"] and not f["head_down"]
+    f = A.instant_flags(small); assert not f["turned"] and not f["head_down"]
 
 
 def test_turned_one_eye():
-    assert A.instant_flags(person(hide=(2,)), FH)["turned"]
-    k = person(); k[2] = (k[2][0], k[2][1], 0.35); assert not A.instant_flags(k, FH)["turned"]   # 遠眼 0.35 不算
-    assert not A.instant_flags(person(hide=(1, 2)), FH)["turned"]
+    assert A.instant_flags(person(hide=(2,)))["turned"]
+    k = person(); k[2] = (k[2][0], k[2][1], 0.35); assert not A.instant_flags(k)["turned"]   # 遠眼 0.35 不算
+    assert not A.instant_flags(person(hide=(1, 2)))["turned"]
 
 
 def test_assign_phones():
@@ -77,15 +76,15 @@ def test_hold_timing_priority_and_freeze_shift():
     s = A.PersonState(); en = {k: True for k in A.RULES}
     k = person(elbows=((45, 120), (155, 220)), wrists=((50, 20), (150, 260)), eyes=((90, 112), (110, 112)))
     ph = [(90, 200, 110, 220)]
-    assert s.update(k, ph, en, now=0.0, frame_h=FH) == "ok" and not s.raised
-    assert s.update(k, ph, en, now=1.3, frame_h=FH) == "ok" and s.raised
-    assert s.update(k, ph, en, now=2.1, frame_h=FH) == "head_down"
+    assert s.update(k, ph, en, now=0.0) == "ok" and not s.raised
+    assert s.update(k, ph, en, now=1.3) == "ok" and s.raised
+    assert s.update(k, ph, en, now=2.1) == "head_down"
     s.shift(10.0)                                                   # 凍結 10 秒
-    assert s.update(k, ph, en, now=12.5, frame_h=FH) == "head_down"   # 手機 2.5 秒有效時間,還不到 3
-    assert s.update(k, ph, en, now=13.1, frame_h=FH) == "phone"
+    assert s.update(k, ph, en, now=12.5) == "head_down"   # 手機 2.5 秒有效時間,還不到 3
+    assert s.update(k, ph, en, now=13.1) == "phone"
     en["phone"] = False
-    assert s.update(k, ph, en, now=13.2, frame_h=FH) == "head_down"
-    assert s.update(person(), [], en, now=13.3, frame_h=FH) == "ok" and not s.raised
+    assert s.update(k, ph, en, now=13.2) == "head_down"
+    assert s.update(person(), [], en, now=13.3) == "ok" and not s.raised
 
 
 def test_grid_and_summary():

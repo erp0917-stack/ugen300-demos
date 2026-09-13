@@ -65,6 +65,12 @@ def draw_text(img, text, xy, size=32, color=(255, 255, 255), anchor="la", shadow
     return img
 
 
+def text_width(text, size):
+    """文字寬度(像素),給底板用。"""
+    f = _font(size)
+    return int(f.getlength(text)) if f else len(text) * size // 2
+
+
 def badge(img, text="離線 · UGen300", size=22):
     """右上角徽章。"""
     h, w = img.shape[:2]

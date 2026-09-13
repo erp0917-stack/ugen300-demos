@@ -20,10 +20,11 @@ import cv2
 import numpy as np
 
 import attention as A
+import hailo_vdevice
 from hailo_detect import ObjectDetector
 from hailo_pose import PoseEstimator
 from tracker import CentroidTracker
-from ui_text import draw_text, badge, text_width
+from ui_text import draw_text, badge, text_width, fit_to_screen, screen_size
 from camera import open_camera
 
 WIN = "UGen300 Classroom"
@@ -33,7 +34,9 @@ C_BG, C_PANEL, C_TXT, C_DIM, C_LINE = (24, 24, 28), (36, 36, 42), (240, 240, 240
 C_OK, C_RAISE, C_DOWN, C_PHONE, C_SLEEP, C_TURN, C_ACC = (80, 220, 120), (255, 160, 40), (60, 200, 255), (60, 60, 230), (140, 140, 140), (200, 90, 200), (255, 170, 40)
 STATE_COLOR = {"ok": C_OK, "head_down": C_DOWN, "phone": C_PHONE, "sleeping": C_SLEEP, "turned": C_TURN}
 SKELETON = [(5, 7), (7, 9), (6, 8), (8, 10), (5, 6), (5, 11), (6, 12), (11, 12), (0, 5), (0, 6)]
-PHONE_CONF, ERR_FATAL, ERR_CLEAR_SEC, ATT_WINDOW, LABEL_MAX_PEOPLE = 0.5, 5, 3.0, 5.0, 8
+PHONE_CONF, ERR_FATAL, ERR_CLEAR_SEC, ATT_WINDOW, LABEL_MAX_PEOPLE, TREND_SEC, CAM_RETRY_SEC = 0.5, 5, 3.0, 5.0, 8, 60, 3.0
+POSE_NMS_IOU = 0.5          # 0.7 偶爾讓一人出兩副骨架(人數、舉手 +1),Classroom 收緊
+TRACKER_KW = dict(max_missed=10, iou_thresh=0.2, dist_thresh=120)
 
 
 def draw_people(fr, s, tracks_kps, states, phones):
@@ -44,7 +47,7 @@ def draw_people(fr, s, tracks_kps, states, phones):
         if flagged: col = C_RAISE if (st.raised and state == "ok") else col
         if not many or flagged:
             for a, b in SKELETON:
-                if kps[a][2] > 0.3 and kps[b][2] > 0.3:
+                if kps[a][2] > A.KP_CONF and kps[b][2] > A.KP_CONF:
                     cv2.line(fr, (int(kps[a][0] * s), int(kps[a][1] * s)), (int(kps[b][0] * s), int(kps[b][1] * s)), col, 2)
         if st and st.box:
             x1, y1, x2, y2 = [int(v * s) for v in st.box]
@@ -114,12 +117,12 @@ def compose(frame, tracks_kps, states, phones, count, summary, enabled, history,
     cv2.line(canvas, (gx0, gy0 + 2), (gx0 + gw, gy0 + 2), (70, 90, 76), 1)
     if len(history) >= 2:
         t_now = ui.get("now", history[-1][0])
-        pts = [(int(gx0 + gw * (1 - (t_now - t) / 60.0)), int(gy0 + gh - 2 - (gh - 4) * v / 100)) for t, v in history if t_now - t <= 60]
+        pts = [(int(gx0 + gw * (1 - (t_now - t) / TREND_SEC)), int(gy0 + gh - 2 - (gh - 4) * v / 100)) for t, v in history if t_now - t <= TREND_SEC]
         for i in range(1, len(pts)): cv2.line(canvas, pts[i - 1], pts[i], C_OK, 2)
-    draw_text(canvas, "最近 60 秒專注度", (gx0, gy0 + gh + 4), 16, C_DIM)
+    draw_text(canvas, f"最近 {TREND_SEC} 秒專注度", (gx0, gy0 + gh + 4), 16, C_DIM)
     draw_text(canvas, f"姿態 {ui.get('ms_pose', 0):.0f} ms · 偵測 {ui.get('ms_det', 0):.0f} ms", (px + 24, H - 84), 16, C_DIM)
     draw_text(canvas, "UGen200 亦可執行", (W - 24, H - 84), 16, C_DIM, anchor="ra")
-    draw_text(canvas, "1-4 開關  空白鍵 凍結  f 鏡像  r 重設  q 離開", (px + 24, H - 56), 17, C_DIM)
+    draw_text(canvas, "1-4 開關  空白鍵 凍結  f 鏡像  r 重設  s 存圖  q 離開", (px + 24, H - 56), 17, C_DIM)
     return canvas
 
 
@@ -136,7 +139,7 @@ def main():
     try:
         for hef in (args.pose_hef, args.det_hef):
             if not os.path.isfile(hef): raise FileNotFoundError(f"找不到模型檔 {os.path.basename(hef)}")
-        pose = PoseEstimator(args.pose_hef, conf_threshold=args.conf); det = ObjectDetector(args.det_hef, conf_threshold=args.conf)
+        pose = PoseEstimator(args.pose_hef, conf_threshold=args.conf, nms_iou=POSE_NMS_IOU); det = ObjectDetector(args.det_hef, conf_threshold=args.conf)
         if not (getattr(pose, "_ready", True) and getattr(det, "_ready", True)): raise RuntimeError("hailo_platform 未安裝")
     except FileNotFoundError as e:
         pose = det = None; fatal = f"{e}\n請依 README 把 HEF 放進 Classroom 資料夾"; print("[模型]", repr(e))
@@ -157,7 +160,8 @@ def main():
               f"person={sum(l == 'person' for l, _, _ in dets)} phone={sum(l == 'cell phone' and s >= PHONE_CONF for l, s, _ in dets)}"); return
     cv2.namedWindow(WIN, cv2.WINDOW_NORMAL | cv2.WINDOW_KEEPRATIO)
     cv2.setWindowProperty(WIN, cv2.WND_PROP_FULLSCREEN, cv2.WINDOW_FULLSCREEN) if args.fullscreen else cv2.resizeWindow(WIN, W, H)
-    enabled = {k: True for k in A.RULES}; tracker = CentroidTracker(max_missed=10, iou_thresh=0.2, dist_thresh=120)
+    screen = screen_size(); cam_lost_at = 0.0
+    enabled = {k: True for k in A.RULES}; tracker = CentroidTracker(**TRACKER_KW)
     states = {}; people = []; dets = []; phones = []; count_hist = deque(maxlen=5); history = deque(); att_hist = deque()
     frozen = None; freeze_t = 0.0; frames = 0; last_summary = A.summarize({}, W, H); count = 0; tracks_kps = {}
     n_err = 0; err_at = 0.0; ui = dict(warn="", frozen=False, flip=args.flip, ms_pose=0.0, ms_det=0.0, att=None)
@@ -166,21 +170,22 @@ def main():
             if still is not None: ok, frame = True, still.copy()
             else:
                 ok, frame = cap.read()
-                if not ok: frame = np.zeros((720, 1280, 3), np.uint8); people = []; dets = []
+                if not ok: frame = np.zeros((H, W, 3), np.uint8); people = []; dets = []
             if ui["flip"] and ok: frame = cv2.flip(frame, 1)
-            now = time.time()
+            now = time.monotonic()
             if frozen is not None: frame = frozen
-            elif pose and det and not fatal:
+            elif ok and pose and det and not fatal:
                 try:
-                    t = time.time()
-                    if frames % 2 == 0: people = pose.infer_multi(frame) or []; ui["ms_pose"] = 0.8 * ui["ms_pose"] + 0.2 * (time.time() - t) * 1000
-                    else: dets = det.infer(frame); ui["ms_det"] = 0.8 * ui["ms_det"] + 0.2 * (time.time() - t) * 1000
+                    t = time.monotonic()
+                    if frames % 2 == 0: people = pose.infer_multi(frame) or []; ui["ms_pose"] = 0.8 * ui["ms_pose"] + 0.2 * (time.monotonic() - t) * 1000
+                    else: dets = det.infer(frame); ui["ms_det"] = 0.8 * ui["ms_det"] + 0.2 * (time.monotonic() - t) * 1000
                     n_err = max(0, n_err - 1)      # 只有一個模型一直壞時仍會累積到 ERR_FATAL
-                except Exception as e:  # noqa: BLE001  單次抖動不該讓 demo 永久停擺;失敗的那個模型結果清空,不沿用舊值
+                except Exception as e:  # noqa: BLE001  單次抖動不該讓 demo 永久停擺;失敗的那個模型結果清空,不沿用舊值;逾時則不可恢復
                     n_err += 1; err_at = now; ui["warn"] = f"推論失敗({n_err}):{type(e).__name__}"; print("[推論]", repr(e))
                     if frames % 2 == 0: people = []
                     else: dets = []
-                    if n_err >= ERR_FATAL: fatal = f"UGen300 連續推論失敗 {n_err} 次\n請重新插拔後重開程式"
+                    if hailo_vdevice.is_timeout(e): fatal = f"UGen300 推論逾時({type(e).__name__})\n請重新插拔後重開程式"
+                    elif n_err >= ERR_FATAL: fatal = f"UGen300 連續推論失敗 {n_err} 次\n請重新插拔後重開程式"
                 phones = [b for l, s, b in dets if l == "cell phone" and s >= PHONE_CONF]
                 n_person = sum(1 for l, _, _ in dets if l == "person")
                 count_hist.append(max(n_person, len(people))); count = int(np.median(count_hist))
@@ -195,7 +200,7 @@ def main():
                         sy, sw = A.shoulder_line(kps); persons.append((tr.id, fb, sy, sw, A.wrists_of(kps)))
                 my_phones = A.assign_phones(phones, persons)
                 for tid, (fb, kps) in tracks_kps.items():
-                    states.setdefault(tid, A.PersonState()).update(kps, my_phones.get(tid, []), enabled, now, box=fb, frame_h=frame.shape[0])
+                    states.setdefault(tid, A.PersonState()).update(kps, my_phones.get(tid, []), enabled, now, box=fb)
                 alive = {tr.id for tr in tracks}
                 for tid in list(states):
                     if tid not in alive: del states[tid]
@@ -207,15 +212,19 @@ def main():
                 while att_hist and now - att_hist[0][0] > ATT_WINDOW: att_hist.popleft()   # 一幀沒骨架不清空,只按時間淘汰
                 if att_hist: ui["att"] = int(round(float(np.mean([v for _, v in att_hist])))); history.append((now, ui["att"]))
                 else: ui["att"] = None
-                while history and now - history[0][0] > 60: history.popleft()
-            if not ok and not fatal and still is None: ui["warn"] = "鏡頭沒有畫面(USB 鬆了?)"; err_at = now
+                while history and now - history[0][0] > TREND_SEC: history.popleft()
+            if not ok and not fatal and still is None:
+                ui["warn"] = "鏡頭沒有畫面(USB 鬆了?)"; err_at = now; cam_lost_at = cam_lost_at or now
+                if now - cam_lost_at > CAM_RETRY_SEC:            # 拔掉再插回:每 3 秒重開一次鏡頭
+                    cap.release(); cap = open_camera(args.source)[0]; cam_lost_at = now
+            elif ok: cam_lost_at = 0.0
             if ui["warn"] and now - err_at > ERR_CLEAR_SEC: ui["warn"] = ""
             ui["now"] = freeze_t if frozen is not None else now
             canvas = compose(frame, tracks_kps, states, phones, count, last_summary, enabled, history, ui, fatal)
-            cv2.imshow(WIN, canvas); frames += 1
+            cv2.imshow(WIN, fit_to_screen(canvas, args.fullscreen, screen)); frames += 1
             if args.snapshot and frames >= args.snapshot_frames:
                 cv2.imwrite(args.snapshot, canvas); print("[snapshot]", args.snapshot); break
-            k = cv2.waitKey(1) & 0xFF
+            k = cv2.waitKey(30 if (fatal or not ok) else 1) & 0xFF      # 沒畫面/致命錯誤時不要空轉吃 CPU
             key = chr(k).lower() if 32 <= k < 127 else ("esc" if k == 27 else "")
             if key in ("q", "esc"): break
             if cv2.getWindowProperty(WIN, cv2.WND_PROP_VISIBLE) < 1: break   # 按了視窗的 X / Alt+F4
@@ -224,13 +233,13 @@ def main():
             if key == " ":
                 if frozen is None: frozen = frame.copy(); freeze_t = now; ui["frozen"] = True
                 else:
-                    dt = time.time() - freeze_t
+                    dt = time.monotonic() - freeze_t
                     for s in states.values(): s.shift(dt)      # 凍結期間不算持續時間
                     history = deque((t + dt, v) for t, v in history); att_hist = deque((t + dt, v) for t, v in att_hist)
                     frozen = None; ui["frozen"] = False
             if frozen is not None: continue                     # 凍結中不處理 f / r / 1-4,避免畫面與面板不一致
             if key == "f": ui["flip"] = not ui["flip"]
-            if key == "r": history.clear(); att_hist.clear(); count_hist.clear(); states.clear(); tracker = CentroidTracker(max_missed=10, iou_thresh=0.2, dist_thresh=120)
+            if key == "r": history.clear(); att_hist.clear(); count_hist.clear(); states.clear(); tracker = CentroidTracker(**TRACKER_KW)
             if key == "s":
                 p = os.path.join(HERE, f"classroom_{datetime.now():%Y%m%d_%H%M%S}.png"); cv2.imwrite(p, canvas); print("[存圖]", p)
     finally:
@@ -239,12 +248,13 @@ def main():
 
 
 if __name__ == "__main__":
-    import hailo_vdevice
     code = 0
     try:
         main()
-    except Exception:  # noqa: BLE001  任何未預期錯誤都要走硬退出,否則 HailoRT 收尾會讓 UGen300 掉線
-        traceback.print_exc(); code = 1
     except KeyboardInterrupt:
         pass
+    except SystemExit as e:
+        code = e.code if isinstance(e.code, int) else 1
+    except BaseException:  # noqa: BLE001  任何未預期錯誤都要走硬退出,否則 HailoRT 收尾會讓 UGen300 掉線
+        traceback.print_exc(); code = 1
     hailo_vdevice.exit_now(code)

@@ -1,7 +1,10 @@
 # 開發用:驗證 SCRFD 解碼與 ArcFace 向量(不進 launcher)
-import sys, time, cv2, numpy as np
+import os, sys, time, cv2, numpy as np
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'FaceCheckIn'))
+os.chdir(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'FaceCheckIn'))
 from face_engine import FaceDetector, FaceEmbedder
-img = cv2.imread(sys.argv[1] if len(sys.argv) > 1 else r"..\FACE1\face.jpg")
+SRC = sys.argv[1] if len(sys.argv) > 1 else r"..\FACE1\face.jpg"
+img = cv2.imdecode(np.fromfile(SRC, np.uint8), cv2.IMREAD_COLOR)
 det = FaceDetector("scrfd_10g.hef", conf=0.5); emb = FaceEmbedder()
 t = time.time(); faces = det.detect(img); dt = time.time() - t
 print("faces", len(faces), f"{dt*1000:.0f} ms")
@@ -15,7 +18,7 @@ if faces:
     print("同臉鏡像 sim", round(float(v1 @ v2), 3), " 對齊偏移 sim", round(float(v1 @ v3), 3), " 雜訊 sim", round(float(v1 @ v4), 3))
     x1, y1, x2, y2 = f["box"]; cv2.rectangle(img, (x1, y1), (x2, y2), (0, 255, 0), 2)
     for x, y in f["kps"].astype(int): cv2.circle(img, (int(x), int(y)), 3, (0, 0, 255), -1)
-    cv2.imwrite("probe_out.jpg", img); cv2.imwrite("probe_align.jpg", emb.align(cv2.imread(sys.argv[1] if len(sys.argv) > 1 else r"..\FACE1\face.jpg"), f["kps"]))
+    cv2.imwrite("probe_out.jpg", img); cv2.imwrite("probe_align.jpg", emb.align(cv2.imdecode(np.fromfile(SRC, np.uint8), cv2.IMREAD_COLOR), f["kps"]))
     print("寫出 probe_out.jpg / probe_align.jpg")
 
 import hailo_vdevice; hailo_vdevice.exit_now()

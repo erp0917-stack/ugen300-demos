@@ -4,7 +4,6 @@ tracker.py —— 簡單多目標追蹤 + 越線計數(純邏輯,可離線測試
 CentroidTracker:用 IoU + 中心距離把相鄰幀的框配對,給穩定 ID;消失 N 幀就刪。
 LineCounter:每個 ID 的中心點跨過計數線(y=line_y)時,依方向計一次(上行/下行),每 ID 只算一次。
 """
-import numpy as np
 
 
 def iou(a, b):

@@ -172,8 +172,9 @@ class FaceDB:
     def save(self):
         try:
             tmp = self.path + ".tmp"
-            json.dump([dict(name=p["name"], vec=[round(float(x), 5) for x in p["vec"]], thumb=_b64_thumb(p["thumb"]) if p["thumb"] is not None else "")
-                       for p in self.people], open(tmp, "w", encoding="utf-8"), ensure_ascii=False)
+            with open(tmp, "w", encoding="utf-8") as f:
+                json.dump([dict(name=p["name"], vec=[round(float(x), 5) for x in p["vec"]], thumb=_b64_thumb(p["thumb"]) if p["thumb"] is not None else "")
+                           for p in self.people], f, ensure_ascii=False)
             os.replace(tmp, self.path); self.last_error = None; return True
         except Exception as e:  # noqa: BLE001
             self.last_error = f"faces.json 無法寫入:{type(e).__name__}(檔案被其他程式開著?)"; print("[FaceDB]", self.last_error, e); return False

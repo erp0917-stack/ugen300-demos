@@ -5,14 +5,8 @@ hailo_detect.py
 這是「眼睛」：叫 UGen300 跑 YOLOv8 物件偵測，
 從一張畫面中找出物件（人、手機、杯子…），回傳每個物件的框和名稱。
 
-⚠️ 說明（請 Matt 讀）：
-   ✅ 已寫好：影像前處理、座標換算、結構介面、COCO 標籤
-   🔧 待對接：真正呼叫 UGen300 的那幾行（標了「TODO 實機對接點」）
-
-   YOLOv8 偵測模型如果用「內建 NMS 後處理」的 .hef（Hailo 官方提供的多半是），
-   輸出會直接是「每個物件 (類別, 信心度, 框)」，後處理很單純。
-   週一接上 UGen300 後，跟 Claude Code 說：
-   「參考官方 object_detection 範例，把 hailo_detect.py 的 TODO 補完」
+已對接完成：InferModel API + 內建 NMS 的 YOLO .hef（yolov8 / yolov11 系列皆可），
+輸出直接是「每個物件 (類別, 信心度, 框)」。
 
    官方參考：github.com/hailo-ai/Hailo-Application-Code-Examples
    → runtime/python/object_detection
@@ -48,9 +42,10 @@ class ObjectDetector:
         # results 是 list，每個元素 (label, score, (x1, y1, x2, y2))，座標已換算回原圖
     """
 
-    def __init__(self, hef_path, conf_threshold=0.5):
+    def __init__(self, hef_path, conf_threshold=0.5, timeout_ms=None):
         self.hef_path = hef_path
         self.conf_threshold = conf_threshold
+        self.timeout_ms = timeout_ms
         self.input_w = 640
         self.input_h = 640
 
@@ -64,7 +59,8 @@ class ObjectDetector:
         # 舊的 ConfigureParams + InferVStreams 不支援此 USB 裝置，改用 InferModel。
         import hailo_vdevice
         self.vdevice = hailo_vdevice.get()  # 單例 + 自動重試(見 hailo_vdevice.py)
-        self.infer_model = self.vdevice.create_infer_model(hef_path)
+        self.infer_model = hailo_vdevice.create_infer_model(hef_path)   # 含重試與保活
+        if self.timeout_ms is None: self.timeout_ms = hailo_vdevice.RUN_TIMEOUT_MS
         try:
             self.infer_model.set_batch_size(1)
         except Exception as e:
@@ -95,7 +91,7 @@ class ObjectDetector:
             self.output_shape = None
 
         # 設定（configure）一次，之後重複跑推論
-        self.configured = self.infer_model.configure()
+        self.configured = self.infer_model.configure(); hailo_vdevice.keep(self.configured)
 
         self._ready = True
         print(f"[hailo_detect] UGen300 模型載入完成（InferModel），"
@@ -124,12 +120,7 @@ class ObjectDetector:
         out_buf = np.zeros(out_shape, dtype=np.float32)
         bindings.output().set_buffer(out_buf)
 
-        # 同步執行（逾時 10 秒）
-        try:
-            self.configured.run([bindings], 10000)
-        except TypeError:
-            # 某些版本參數名為 timeout_ms 或不需要逾時
-            self.configured.run([bindings])
+        self.configured.run([bindings], self.timeout_ms)
 
         raw = bindings.output().get_buffer()
         return self._parse_output(raw)
@@ -222,9 +213,4 @@ class ObjectDetector:
                 cim.__exit__(None, None, None)
         except Exception:
             pass
-        try:
-            vd = getattr(self, "vdevice", None)
-            if vd is not None and hasattr(vd, "release"):
-                vd.release()
-        except Exception:
-            pass
+        # VDevice 由 hailo_vdevice.release() 在程序結尾統一處理,這裡不碰

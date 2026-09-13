@@ -2,7 +2,7 @@
 face_checkin.py —— 30 秒建檔的人臉報到:SCRFD 找臉 → ArcFace 512 維向量 → 本機人臉庫比對 → 「已報到」名單。
 
 建檔兩種方式:
-  1. 現場:按 e → 3 秒倒數 → 鎖定倒數結束時最大的那張臉,1.5 秒內取 5 個樣本平均 → 對話框輸入名字(支援中文)→ 存檔
+  1. 現場:按 e → 3 秒倒數 → 鎖定倒數結束時最大的那張臉,每 3 幀取一個樣本、取滿 5 個(最多等 6 秒)平均 → 對話框輸入名字(支援中文)→ 存檔
   2. 預先:把照片放進 faces\ 資料夾,檔名就是名字(王小明.jpg),啟動時自動建檔(已有同名者略過)
 存的是向量 + 64px 縮圖(faces.json),不存原始照片;報到紀錄寫 checkin.csv(寫不進去只提示,不會當掉)。
 兩個模型(scrfd、arcface_mobilefacenet)Hailo-8L 也有,UGen200 同樣可用。
@@ -15,7 +15,6 @@ import argparse
 import csv
 import glob
 import os
-import sys
 import time
 import traceback
 from datetime import datetime
@@ -23,8 +22,9 @@ from datetime import datetime
 import cv2
 import numpy as np
 
+import hailo_vdevice
 from face_engine import FaceDetector, FaceEmbedder, FaceDB, square_crop, iou
-from ui_text import draw_text, badge, text_width
+from ui_text import draw_text, badge, text_width, fit_to_screen, screen_size
 from camera import open_camera
 
 WIN = "UGen300 Face Check-In"
@@ -33,10 +33,11 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 DB_PATH, LOG_PATH, FACES_DIR = os.path.join(HERE, "faces.json"), os.path.join(HERE, "checkin.csv"), os.path.join(HERE, "faces")
 C_BG, C_PANEL, C_TXT, C_DIM = (24, 24, 28), (36, 36, 42), (240, 240, 240), (150, 150, 150)
 C_OK, C_ACC, C_NO, C_LINE, C_GRAY = (80, 220, 120), (255, 170, 40), (60, 140, 255), (70, 70, 80), (190, 190, 200)
-ENROLL_SAMPLES, ENROLL_EVERY, ENROLL_TIMEOUT = 5, 3, 6.0     # 5 個樣本、每 3 幀取一個、最多等 6 秒
+ENROLL_SAMPLES, ENROLL_EVERY, ENROLL_TIMEOUT, COUNTDOWN_SEC, LOCK_IOU = 5, 3, 6.0, 3, 0.3   # 5 個樣本、每 3 幀取一個、最多等 6 秒、倒數 3 秒、鎖臉 IoU
+PRELOAD_MAX_SIDE = 1600
 CONFIRM_SEC, RESET_GRACE, BANNER_SEC, LIST_MAX = 0.6, 3.0, 2.5, 5
 EMBED_MAX_FACES, EMBED_MIN_W = 5, 48          # 每幀最多算 5 張、太小的臉不算(觀眾席小臉不拖慢速度)
-ERR_RETRY, ERR_CLEAR_SEC = 5, 3.0
+ERR_RETRY, ERR_CLEAR_SEC, CAM_RETRY_SEC = 5, 3.0, 3.0
 
 
 def beep(f=1200, ms=120):
@@ -81,8 +82,8 @@ def preload_faces(det, emb, db):
         except Exception as e:  # noqa: BLE001
             print(f"[預先建檔] {name}:讀檔失敗 {type(e).__name__},略過"); skipped.append(name); continue
         if img is None: skipped.append(name); print(f"[預先建檔] {name}:不是可讀的圖片,略過"); continue
-        if max(img.shape[:2]) > 1600:
-            s = 1600 / max(img.shape[:2]); img = cv2.resize(img, None, fx=s, fy=s)
+        if max(img.shape[:2]) > PRELOAD_MAX_SIDE:
+            s = PRELOAD_MAX_SIDE / max(img.shape[:2]); img = cv2.resize(img, None, fx=s, fy=s)
         try:
             faces = det.detect(img); v = emb.embed(img, faces[0]["kps"]) if faces else None
         except Exception as e:  # noqa: BLE001  一張壞照片不能讓程式起不來
@@ -100,7 +101,7 @@ def log_checkin(name):
         with open(LOG_PATH, "a", newline="", encoding="utf-8-sig") as f:
             w = csv.writer(f); new and w.writerow(["time", "name"]); w.writerow([datetime.now().strftime("%Y-%m-%d %H:%M:%S"), name])
         return None
-    except OSError as e:
+    except OSError:
         return "checkin.csv 被其他程式開著,這筆未記錄"
 
 
@@ -137,7 +138,7 @@ def compose(frame, faces, results, db, checked, ui, fatal=None):
     elif ui["phase"] == "naming":
         cv2.rectangle(canvas, (x0, cy - 60), (x0 + fr.shape[1], cy + 60), (30, 30, 36), -1)
         draw_text(canvas, "請在跳出的對話框輸入名字", (cx, cy), 44, C_ACC, anchor="mm")
-    if ui["phase"] == "live" and ui.get("banner") and time.time() < ui["banner_until"]:
+    if ui["phase"] == "live" and ui.get("banner") and time.monotonic() < ui["banner_until"]:
         cv2.rectangle(canvas, (x0, cy - 70), (x0 + fr.shape[1], cy + 70), (30, 70, 40), -1)
         draw_text(canvas, ui["banner"], (cx, cy), 64 if len(ui["banner"]) <= 10 else 44, C_OK, anchor="mm")
     if ui.get("warn"):
@@ -166,7 +167,7 @@ def compose(frame, faces, results, db, checked, ui, fatal=None):
         draw_text(canvas, m[:20], (px + 24, H - 150), 20, col)
         if len(m) > 20: draw_text(canvas, m[20:40], (px + 24, H - 124), 20, col)
     draw_text(canvas, f"偵測 {ui['ms']:.0f} ms", (px + 24, H - 92), 16, C_DIM)
-    draw_text(canvas, "e 建檔  d 刪最後一筆  r 清單重來  q 離開", (px + 24, H - 62), 18, C_DIM)
+    draw_text(canvas, "e 建檔  d 刪最後一筆  r 清單重來  v 相似度  s 存圖  q 離開", (px + 24, H - 62), 17, C_DIM)
     return canvas
 
 
@@ -184,17 +185,22 @@ def main():
         det = emb = None
         fatal = f"模型載入失敗:{type(e).__name__}\n請確認 UGen300 已插上,且沒有其他 demo 正在使用它"; print("[模型]", repr(e))
     db = FaceDB(DB_PATH)
+    preload_msg = ""
     if det and emb and not fatal:
-        try: preload_faces(det, emb, db)
+        try:
+            _added, skipped = preload_faces(det, emb, db)
+            if skipped: preload_msg = "預先建檔略過:" + "、".join(skipped)[:24]
         except Exception as e:  # noqa: BLE001  預先建檔出任何問題都不能讓程式起不來
-            print("[預先建檔] 整批略過:", repr(e))
+            print("[預先建檔] 整批略過:", repr(e)); preload_msg = "預先建檔失敗,見主控台"
     still = None
     if args.image:
         still = cv2.imdecode(np.fromfile(args.image, np.uint8), cv2.IMREAD_COLOR)
         if still is None: print("讀不到圖片:", args.image); return
         cap, cam_idx, cam_name = cv2.VideoCapture(), -1, "靜態圖"; cam_ok = True
     else:
-        cap, cam_idx, cam_name = open_camera(args.source); cam_ok = cap.isOpened()
+        try: cap, cam_idx, cam_name = open_camera(args.source)
+        except (ValueError, TypeError) as e: cap, cam_idx, cam_name = cv2.VideoCapture(), -1, ""; fatal = fatal or f"鏡頭參數錯誤:{e}"
+        cam_ok = cap.isOpened()
     if not cam_ok and not fatal: fatal = "找不到可用鏡頭\n請關閉其他正在用鏡頭的程式(Teams、相機)後重開"
 
     def grab():
@@ -208,28 +214,35 @@ def main():
               f"比對={[(n or '未建檔', round(s, 2)) for n, s in res]}"); return
     cv2.namedWindow(WIN, cv2.WINDOW_NORMAL | cv2.WINDOW_KEEPRATIO)
     cv2.setWindowProperty(WIN, cv2.WND_PROP_FULLSCREEN, cv2.WINDOW_FULLSCREEN) if args.fullscreen else cv2.resizeWindow(WIN, W, H)
-    cv2.waitKey(1); disable_ime(WIN)
+    cv2.waitKey(1); disable_ime(WIN); screen = screen_size()
     checked = {}; first_seen = {}; frames = 0; n_err = 0; err_at = 0.0
     ui = dict(phase="live", countdown=0, n_samples=0, lock_box=None, banner="", banner_until=0.0, warn="", msg="", msg_bad=False, show_sim=False, ms=0.0)
-    if db.last_error: ui.update(msg=db.last_error, msg_bad=True); msg_t = time.time() + 6
+    if db.last_error or preload_msg: ui.update(msg=db.last_error or preload_msg, msg_bad=True); msg_t = time.monotonic() + 8
     else: msg_t = 0.0
-    t0 = 0.0; samples = []; sample_thumb = None; reset_until = 0.0
+    t0 = 0.0; samples = []; sample_thumb = None; reset_until = 0.0; cam_lost_at = 0.0
     try:
         while True:
             ok, frame = grab()
-            frame = cv2.flip(frame, 1) if ok else np.zeros((720, 1280, 3), np.uint8)
+            frame = cv2.flip(frame, 1) if ok else np.zeros((H, W, 3), np.uint8)
             faces, results = [], []
-            now = time.time()
-            if not ok and not fatal: ui["warn"] = "鏡頭沒有畫面(USB 鬆了?)"; err_at = now
+            now = time.monotonic()
+            if not ok and not fatal and still is None:
+                ui["warn"] = "鏡頭沒有畫面(USB 鬆了?)"; err_at = now; cam_lost_at = cam_lost_at or now
+                if now - cam_lost_at > CAM_RETRY_SEC:            # 拔掉再插回:每 3 秒重開一次鏡頭
+                    cap.release(); cap, cam_idx, cam_name = open_camera(args.source); cam_ok = cap.isOpened(); cam_lost_at = now
+            elif ok: cam_lost_at = 0.0
             if det and not fatal and ok:
                 try:
-                    t = time.time(); faces = det.detect(frame); ui["ms"] = 0.8 * ui["ms"] + 0.2 * (time.time() - t) * 1000
+                    t = time.monotonic(); faces = det.detect(frame); ui["ms"] = 0.8 * ui["ms"] + 0.2 * (time.monotonic() - t) * 1000
                     faces = [f for f in faces if f["box"][2] - f["box"][0] >= EMBED_MIN_W][:EMBED_MAX_FACES]
-                    results = [db.match(emb.embed(frame, f["kps"]), args.thr) for f in faces]
+                    need = ui["phase"] in ("live", "capture") and frames % (1 if ui["phase"] == "live" else ENROLL_EVERY) == 0
+                    vecs = [emb.embed(frame, f["kps"]) for f in faces] if need else [None] * len(faces)
+                    results = [db.match(v, args.thr) if v is not None else (None, 0.0) for v in vecs]
                     n_err = 0
-                except Exception as e:  # noqa: BLE001  一次抖動不該讓整支 demo 停擺:顯示警告、繼續嘗試
-                    n_err += 1; err_at = now; ui["warn"] = f"推論失敗({n_err}):{type(e).__name__}"; print("[推論]", e)
-                    if n_err >= ERR_RETRY: fatal = f"UGen300 連續推論失敗 {n_err} 次\n請重新插拔後重開程式"
+                except Exception as e:  # noqa: BLE001  一次抖動不該讓整支 demo 停擺:顯示警告、繼續嘗試;逾時則不可恢復
+                    n_err += 1; err_at = now; ui["warn"] = f"推論失敗({n_err}):{type(e).__name__}"; print("[推論]", repr(e))
+                    if hailo_vdevice.is_timeout(e): fatal = f"UGen300 推論逾時({type(e).__name__})\n請重新插拔後重開程式"
+                    elif n_err >= ERR_RETRY: fatal = f"UGen300 連續推論失敗 {n_err} 次\n請重新插拔後重開程式"
             if ui["warn"] and now - err_at > ERR_CLEAR_SEC: ui["warn"] = ""
             # 報到:同一名字連續看到 CONFIRM_SEC 秒才算;按 r 之後 RESET_GRACE 秒內不報到
             seen = set()
@@ -245,7 +258,7 @@ def main():
                 if n not in seen: del first_seen[n]
             # 建檔流程
             if ui["phase"] == "countdown":
-                left = 3 - int(now - t0); ui["countdown"] = max(1, left)
+                left = COUNTDOWN_SEC - int(now - t0); ui["countdown"] = max(1, left)
                 if left <= 0:
                     if faces:
                         ui.update(phase="capture", n_samples=0, lock_box=faces[0]["box"]); samples = []; sample_thumb = None; t0 = now; beep(1000, 80)
@@ -253,11 +266,9 @@ def main():
                         ui.update(phase="live", msg="沒抓到臉,再按 e 重試", msg_bad=True); msg_t = now + 4
             elif ui["phase"] == "capture":
                 if faces and frames % ENROLL_EVERY == 0:
-                    f = max(faces, key=lambda f: iou(f["box"], ui["lock_box"]))
-                    if iou(f["box"], ui["lock_box"]) > 0.3:
-                        ui["lock_box"] = f["box"]
-                        try: v = emb.embed(frame, f["kps"])
-                        except Exception: v = None  # noqa: BLE001
+                    i = max(range(len(faces)), key=lambda i: iou(faces[i]["box"], ui["lock_box"])); f = faces[i]
+                    if iou(f["box"], ui["lock_box"]) > LOCK_IOU:
+                        ui["lock_box"] = f["box"]; v = vecs[i] if i < len(vecs) else None   # 沿用這一幀已算好的向量
                         if v is not None:
                             samples.append(v); ui["n_samples"] = len(samples)
                             if sample_thumb is None: sample_thumb = square_crop(frame, f["box"])
@@ -265,7 +276,8 @@ def main():
                     v = np.mean(samples, 0); v /= np.linalg.norm(v) + 1e-6
                     ui["phase"] = "naming"
                     cv2.imshow(WIN, compose(frame, faces, results, db, checked, ui, fatal)); cv2.waitKey(1)
-                    name = ask_name(); disable_ime(WIN); now = time.time()   # 對話框可能開很久,時間要重抓
+                    name = ask_name(); disable_ime(WIN); now = time.monotonic()   # 對話框可能開很久,時間要重抓
+                    if cv2.getWindowProperty(WIN, cv2.WND_PROP_VISIBLE) < 1: break   # 對話框開著時主視窗被 Alt+F4
                     if name:
                         existed, saved = db.add(name, v, sample_thumb); checked.pop(name, None); first_seen.pop(name, None)
                         ui.update(msg=(f"已更新建檔:{name}" if existed else f"已建檔:{name}") if saved else db.last_error, msg_bad=not saved); beep(1500, 100)
@@ -275,10 +287,10 @@ def main():
                     ui.update(phase="live", msg="臉離開了畫面,再按 e 重試", msg_bad=True); msg_t = now + 4
             if ui["msg"] and now > msg_t: ui.update(msg="", msg_bad=False)
             canvas = compose(frame, faces, results, db, checked, ui, fatal)
-            cv2.imshow(WIN, canvas); frames += 1
+            cv2.imshow(WIN, fit_to_screen(canvas, args.fullscreen, screen)); frames += 1
             if args.snapshot and frames >= 40:
                 cv2.imwrite(args.snapshot, canvas); print("[snapshot]", args.snapshot); break
-            k = cv2.waitKey(1) & 0xFF
+            k = cv2.waitKey(30 if (fatal or not ok) else 1) & 0xFF      # 沒畫面/致命錯誤時不要空轉吃 CPU
             key = chr(k).lower() if 32 <= k < 127 else ("esc" if k == 27 else "")
             if key in ("q", "esc"): break
             if cv2.getWindowProperty(WIN, cv2.WND_PROP_VISIBLE) < 1: break   # 按了視窗的 X / Alt+F4
@@ -298,12 +310,13 @@ def main():
 
 
 if __name__ == "__main__":
-    import hailo_vdevice
     code = 0
     try:
         main()
-    except Exception:  # noqa: BLE001  任何未預期錯誤都要走硬退出,否則 HailoRT 收尾會讓 UGen300 掉線
-        traceback.print_exc(); code = 1
     except KeyboardInterrupt:
         pass
+    except SystemExit as e:
+        code = e.code if isinstance(e.code, int) else 1
+    except BaseException:  # noqa: BLE001  任何未預期錯誤都要走硬退出,否則 HailoRT 收尾會讓 UGen300 掉線
+        traceback.print_exc(); code = 1
     hailo_vdevice.exit_now(code)

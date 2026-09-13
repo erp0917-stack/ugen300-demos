@@ -50,8 +50,8 @@ def shoulder_line(kps):
     return None, None
 
 
-def instant_flags(kps, frame_h=None):
-    """單幀的瞬時判斷,回傳 dict(raise_, head_down, sleeping, turned) 布林。frame_h 用於趴下的「肩膀在畫面下半」條件。"""
+def instant_flags(kps):
+    """單幀的瞬時判斷,回傳 dict(raise_, head_down, sleeping, turned) 布林。"""
     f = dict(raise_=False, head_down=False, sleeping=False, turned=False)
     sho_y, sho_w = shoulder_line(kps)
     eyes_y = [kps[i][1] for i in (L_EYE, R_EYE) if _ok(kps, i)]
@@ -132,10 +132,10 @@ class PersonState:
         """畫面凍結了 dt 秒:把所有計時起點往後推,凍結期間不算持續。"""
         for k in self.since: self.since[k] += dt
 
-    def update(self, kps, my_phones, enabled, now=None, box=None, frame_h=None):
-        now = time.time() if now is None else now
+    def update(self, kps, my_phones, enabled, now=None, box=None):
+        now = time.monotonic() if now is None else now
         self.box = box or bbox_from_kps(kps); self.sho_y, self.sho_w = shoulder_line(kps)
-        f = instant_flags(kps, frame_h)
+        f = instant_flags(kps)
         self.raised = self._hold("raise", f["raise_"], RAISE_HOLD, now)
         held = dict(
             phone=self._hold("phone", bool(my_phones), PHONE_HOLD, now),

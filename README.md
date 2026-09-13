@@ -1,6 +1,6 @@
 # UGen300 Demos
 
-A collection of 11 ready-to-run AI demo apps for the ASUS UGen300 AI accelerator. Every app runs fully offline on the device — no cloud and no internet connection needed at runtime.
+A collection of 24 ready-to-run AI demo apps for the ASUS UGen300 AI accelerator. Every app runs fully offline on the device — no cloud and no internet connection needed at runtime.
 
 ## About UGen300
 
@@ -53,7 +53,7 @@ The apps fall into three groups: pose and detection apps (Y series), vision-lang
 | **HeadCount** | Real-time person counter with freeze, peak and a 60-second trend — pan the camera across a room. |
 | **EdgeVsCloud** | Side-by-side dashboard: measured UGen300 latency/fps vs measured network RTT plus cloud cost and power estimates. |
 | **PhotoRestore** | Drag in an old photo: brighten, denoise and 2x upscale on the accelerator, then compare before/after with a slider. Works on UGen200 too. |
-| **FaceCheckIn** | 30-second face enrolment (press `e`, or drop photos into `faces/`) and hands-free check-in: SCRFD + ArcFace, only 512-d vectors are stored, never photos. Works on UGen200 too. |
+| **FaceCheckIn** | 30-second face enrolment (press `e`, or drop photos into `faces/`) and hands-free check-in: SCRFD + ArcFace. Only the 512-d vector and a 64 px thumbnail are stored, never the original photo. Works on UGen200 too. |
 | **Classroom** | One window, many signals: head count, raised hands with a 3x3 seat map, inattentive count (head down / phone / asleep / turned away) and a 60-second attention trend. yolov8m_pose + yolov11m. Works on UGen200 too. |
 
 ## Requirements
@@ -94,7 +94,7 @@ cd ugen300-demos
 
 The AI models are large, so they are **not** included in this repository. You download them once and place each file in the right folder.
 
-There are 5 model files. Download each one from the link below:
+Download each model file from the link below (the base set is listed in the table; the newer apps' models are listed under it):
 
 | Model file | Download link | Used by |
 |------------|---------------|---------|
@@ -108,6 +108,10 @@ There are 5 model files. Download each one from the link below:
 | `zero_dce.hef` | `https://hailo-model-zoo.s3.eu-west-2.amazonaws.com/ModelZoo/Compiled/v5.4.0/hailo10h/zero_dce.hef` | PhotoRestore |
 | `dncnn_color_blind.hef` | `https://hailo-model-zoo.s3.eu-west-2.amazonaws.com/ModelZoo/Compiled/v5.4.0/hailo10h/dncnn_color_blind.hef` | PhotoRestore |
 | `real_esrgan_x2.hef` | `https://hailo-model-zoo.s3.eu-west-2.amazonaws.com/ModelZoo/Compiled/v5.4.0/hailo10h/real_esrgan_x2.hef` | PhotoRestore |
+| `scrfd_10g.hef` | `https://hailo-model-zoo.s3.eu-west-2.amazonaws.com/ModelZoo/Compiled/v5.4.0/hailo10h/scrfd_10g.hef` | FaceCheckIn |
+| `arcface_mobilefacenet.hef` | `https://hailo-model-zoo.s3.eu-west-2.amazonaws.com/ModelZoo/Compiled/v5.4.0/hailo10h/arcface_mobilefacenet.hef` | FaceCheckIn |
+| `yolov8m_pose.hef` | `https://hailo-model-zoo.s3.eu-west-2.amazonaws.com/ModelZoo/Compiled/v5.4.0/hailo10h/yolov8m_pose.hef` | Classroom |
+| `yolov11m.hef` | `https://hailo-model-zoo.s3.eu-west-2.amazonaws.com/ModelZoo/Compiled/v5.4.0/hailo10h/yolov11m.hef` | Classroom |
 
 Where to put each file:
 
@@ -116,14 +120,14 @@ Where to put each file:
 - **`yolov8s_pose.hef`** goes into each of the `Y2/`, `Y3/`, `Y4/`, `Y5/` and `WakeUp/` folders — one copy in each.
 - **`Qwen3-1.7B-Instruct.hef`** (and optionally `Llama3.2-1B-Instruct.hef`) go into `models/` for OfflineChat.
 - **`zero_dce.hef`, `dncnn_color_blind.hef`, `real_esrgan_x2.hef`** go into `PhotoRestore/`.
-- **`scrfd_10g.hef` + `arcface_mobilefacenet.hef`** into `FaceCheckIn/`; **`yolov8m_pose.hef` + `yolov11m.hef`** into `Classroom/`; **`yolov8s.hef`** goes into `Traffic/` and `EdgeVsCloud/`; **`yolov8m.hef`** into `HeadCount/`; **`yolov8s_pose.hef` + `hand_landmark_lite.hef`** into `HandDemos/`; **`paddle_ocr_v5_mobile_detection.hef` + `paddle_ocr_v5_mobile_recognition.hef`** into `Traffic/` (all from the Hailo Model Zoo v5.4.0 HAILO10H list).
+**`yolov8s.hef`** goes into `Traffic/` and `EdgeVsCloud/`; **`yolov8m.hef`** into `HeadCount/`; **`yolov8s_pose.hef` + `hand_landmark_lite.hef`** into `HandDemos/`; **`paddle_ocr_v5_mobile_detection.hef` + `paddle_ocr_v5_mobile_recognition.hef`** into `Traffic/` (all from the Hailo Model Zoo v5.4.0 HAILO10H list).
 - AirBand additionally needs `pip install pygame`.
 
 > **Note on model versions:** The YOLO models come from the Hailo Model Zoo (compiled for v5.3.0) and the GenAI models come from Hailo's public model server (v5.2.0). Both sets work together on the UGen300. We recommend installing HailoRT 5.3.x, which runs all of these models.
 
 ### 4. Install Python dependencies
 
-Each app has its own `requirements.txt`. Open the folder of the app you want to run, then install its dependencies:
+Apps that need extra packages ship a `requirements.txt`; the newer apps only need the common set (`opencv-python`, `numpy`, `Pillow`, `pygrabber`). Open the folder of the app you want to run, then install its dependencies:
 
 ```bash
 cd Y1
@@ -158,8 +162,11 @@ Open a terminal in the app's folder and run its entry point. Here are the comman
 | Face Report | `FACE1/` | `python face_report.py --camera --lang tw` |
 | Meeting Notes (CLI) | `WQ1/` | `python meeting_summary.py` |
 | Meeting Notes (GUI) | `WQ1/` | `python meeting_gui.py` |
+| FaceCheckIn | `FaceCheckIn/` | `python face_checkin.py --source auto` |
+| Classroom | `Classroom/` | `python classroom.py --source auto` |
+| (other 2026-09 apps) | `WakeUp/`, `Calories/`, `OfflineChat/`, `PhotoRestore/`, `HandDemos/`, `Traffic/`, `HeadCount/`, `EdgeVsCloud/` | see the docstring at the top of each entry file; all camera apps accept `--source auto` |
 
-`--source 0` means your default webcam. If you have more than one camera, try `--source 1`, `--source 2`, and so on.
+`--source auto` (default for the 2026-09 apps) picks an external USB webcam when one is plugged in and falls back to the built-in camera. `--source 0` / `--source 1` forces a specific camera.
 
 ## Project Structure
 
@@ -176,6 +183,10 @@ ugen300-demos/
 ├── MissingCheck/   Missing Check
 ├── FACE1/          Face Report
 ├── WQ1/            Meeting Notes
+├── WakeUp/ Calories/ OfflineChat/ PhotoRestore/ HandDemos/ Traffic/ HeadCount/ EdgeVsCloud/   (2026-09 apps)
+├── FaceCheckIn/    Face enrolment + check-in
+├── Classroom/      Classroom dashboard
+├── scripts/        selftest_all.bat, probe tools
 ├── models/         Shared model files (.hef)
 ├── launchers/      One-click .bat shortcuts
 └── README.md

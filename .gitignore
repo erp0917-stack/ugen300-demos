@@ -31,8 +31,9 @@ Traffic/count_log.csv
 FaceCheckIn/faces.json
 FaceCheckIn/checkin.csv
 FaceCheckIn/faces/*
+!FaceCheckIn/faces/.gitkeep
 FaceCheckIn/probe_*.jpg
-FaceCheckIn/snap.png
 FaceCheckIn/checkin_*.png
 Classroom/classroom_*.png
-Classroom/snap.png
+Classroom/scene_test.jpg
+**/out.png

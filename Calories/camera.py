@@ -16,7 +16,7 @@ _INTERNAL_HINTS = ["integrated", "built-in", "hd camera", "hd webcam", "internal
 # 名稱含這些的一定是外接 USB 鏡頭(優先於內建關鍵字;例如 "Logitech HD Webcam C270" 含 hd webcam 但其實是外接)
 _EXTERNAL_HINTS = ["logitech", "logi ", "brio", "c920", "c922", "c930", "c270", "c310", "streamcam", "razer", "elgato",
                    "insta360", "obsbot", "anker", "aukey", "外接"]
-_VIRTUAL_HINTS = ["obs", "virtual", "droidcam", "manycam", "snap camera"]
+_VIRTUAL_HINTS = ["obs virtual", "obs-camera", "obs camera", "virtual", "droidcam", "manycam", "snap camera"]
 
 
 def _names():
@@ -29,7 +29,7 @@ def _names():
 
 def _is_external(name): return any(k in name.lower() for k in _EXTERNAL_HINTS)
 def _is_internal(name): return (not _is_external(name)) and any(k in name.lower() for k in _INTERNAL_HINTS)
-def _is_virtual(name): return any(k in name.lower() for k in _VIRTUAL_HINTS)
+def _is_virtual(name): return (not _is_external(name)) and any(k in name.lower() for k in _VIRTUAL_HINTS)   # OBSBOT 是實體鏡頭
 
 
 def _open(index, width, height):
@@ -44,7 +44,7 @@ def detect_camera(width=1280, height=720, verbose=True):
     names = _names()
     if verbose:
         for i, nm in enumerate(names):
-            print(f"[鏡頭] index={i}: {nm}{'(內建)' if _is_internal(nm) else '(虛擬,略過)' if _is_virtual(nm) else '(外接)'}", flush=True)
+            print(f"[鏡頭] index={i}: {nm}{'(虛擬,略過)' if _is_virtual(nm) else '(內建)' if _is_internal(nm) else '(外接)'}", flush=True)
     n_total = len(names) if names else 3   # 枚舉成功就只掃有名字的,避免探不存在的 index 噴警告
     usable = []
     for idx in range(n_total):
@@ -60,6 +60,7 @@ def detect_camera(width=1280, height=720, verbose=True):
         return None
     external = [(i, nm) for i, nm, internal in usable if not internal]
     if external:
+        external.sort(key=lambda t: not _is_external(t[1]))   # 有品牌關鍵字(Logitech/BRIO…)的排前面;名字中性的(USB2.0 Camera)其實常是內建
         return external[0]
     i, nm, _ = usable[0]
     return (i, nm)

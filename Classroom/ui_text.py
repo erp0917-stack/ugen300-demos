@@ -82,3 +82,24 @@ def badge(img, text="離線 · UGen300", size=22):
     cv2.rectangle(img, (x0, y0), (w - pad, y0 + size + pad), (0, 200, 120), 1)
     draw_text(img, text, (x0 + pad, y0 + pad // 2), size, (0, 230, 140), shadow=False)
     return img
+
+
+def screen_size(default=(1280, 720)):
+    """主螢幕解析度(全螢幕補黑邊用);取不到就回預設。"""
+    try:
+        import ctypes; u = ctypes.windll.user32; return int(u.GetSystemMetrics(0)), int(u.GetSystemMetrics(1))
+    except Exception:
+        return default
+
+
+def fit_to_screen(canvas, fullscreen, screen=None):
+    """全螢幕時 HighGUI 會把畫布直接拉到整個螢幕(KEEPRATIO 無效),16:10 螢幕會把 16:9 畫布垂直拉長 11%;
+    這裡先等比縮放並補黑邊,再交給 imshow。非全螢幕原樣回傳。"""
+    if not fullscreen: return canvas
+    sw, sh = screen or screen_size()
+    h, w = canvas.shape[:2]
+    if abs(sw / sh - w / h) < 0.01: return canvas
+    s = min(sw / w, sh / h); cw, ch = int(w * s), int(h * s)
+    out = np.zeros((sh, sw, 3), np.uint8); ox, oy = (sw - cw) // 2, (sh - ch) // 2
+    out[oy:oy + ch, ox:ox + cw] = cv2.resize(canvas, (cw, ch), interpolation=cv2.INTER_AREA)
+    return out

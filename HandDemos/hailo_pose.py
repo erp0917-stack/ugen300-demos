@@ -100,9 +100,11 @@ class PoseEstimator:
         people = pose.infer_multi(frame)     # 多人：list[人][17] of (x,y,conf)
     """
 
-    def __init__(self, hef_path, conf_threshold=0.5):
+    def __init__(self, hef_path, conf_threshold=0.5, nms_iou=_NMS_IOU, timeout_ms=None):
         self.hef_path = hef_path
         self.conf_threshold = conf_threshold
+        self.nms_iou = nms_iou
+        self.timeout_ms = timeout_ms
         self.input_w = 640
         self.input_h = 640
 
@@ -115,7 +117,8 @@ class PoseEstimator:
         self.hef = HEF(hef_path)
         import hailo_vdevice
         self.vdevice = hailo_vdevice.get()  # 單例 + 自動重試(見 hailo_vdevice.py)
-        self.infer_model = self.vdevice.create_infer_model(hef_path)
+        self.infer_model = hailo_vdevice.create_infer_model(hef_path)   # 含重試與保活
+        if self.timeout_ms is None: self.timeout_ms = hailo_vdevice.RUN_TIMEOUT_MS
         try:
             self.infer_model.set_batch_size(1)
         except Exception as e:
@@ -156,7 +159,7 @@ class PoseEstimator:
                 self.output_shapes[name] = None
 
         # 設定（configure）一次，之後重複跑推論
-        self.configured = self.infer_model.configure()
+        self.configured = self.infer_model.configure(); hailo_vdevice.keep(self.configured)
 
         self._ready = True
         print(
@@ -188,10 +191,7 @@ class PoseEstimator:
             bindings.output(name).set_buffer(buf)
             out_bufs[name] = buf
 
-        try:
-            self.configured.run([bindings], 10000)
-        except TypeError:
-            self.configured.run([bindings])
+        self.configured.run([bindings], self.timeout_ms)
 
         # 確保每個輸出都有 batch 維度（不同 HailoRT 版本可能省略）
         raw = {}
@@ -321,7 +321,7 @@ class PoseEstimator:
         scores_kept = scores_kept[order]
         kpts_kept = x[order, 5:5 + _KP_CH].reshape(-1, _KEYPOINTS, 3)
 
-        keep = _nms_indices(xyxy, scores_kept, _NMS_IOU)
+        keep = _nms_indices(xyxy, scores_kept, self.nms_iou)
         if len(keep) == 0:
             return []
         scores_final = scores_kept[keep]
@@ -368,9 +368,4 @@ class PoseEstimator:
                 cim.__exit__(None, None, None)
         except Exception:
             pass
-        try:
-            vd = getattr(self, "vdevice", None)
-            if vd is not None and hasattr(vd, "release"):
-                vd.release()
-        except Exception:
-            pass
+        # VDevice 由 hailo_vdevice.release() 在程序結尾統一處理,這裡不碰(釋放共用單例會讓另一個模型懸空)
