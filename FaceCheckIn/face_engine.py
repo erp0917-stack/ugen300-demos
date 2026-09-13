@@ -23,9 +23,9 @@ _HERE = os.path.dirname(os.path.abspath(__file__))
 _STRIDES = (8, 16, 32)
 _NUM_ANCHORS = 2
 EMB_DIM = 512
-# ArcFace 112x112 標準五點模板(左眼、右眼、鼻、左嘴角、右嘴角)
-_ARCFACE_TEMPLATE = np.array([[38.2946, 51.6963], [73.5318, 51.5014], [41.5493, 92.3655],
-                              [70.7299, 92.2041], [56.1396, 92.2848]], dtype=np.float32)
+# ArcFace 112x112 標準五點模板(左眼、右眼、鼻、左嘴角、右嘴角)—— 與 insightface face_align.arcface_src 逐值相同
+_ARCFACE_TEMPLATE = np.array([[38.2946, 51.6963], [73.5318, 51.5014], [56.0252, 71.7366],
+                              [41.5493, 92.3655], [70.7299, 92.2041]], dtype=np.float32)
 
 
 def _nms(boxes, scores, thr=0.4):
@@ -108,7 +108,8 @@ class FaceEmbedder:
     @staticmethod
     def align(bgr, kps):
         """五點相似變換對齊到 112x112;關鍵點退化(估不出變換)時回傳 None。"""
-        M, _ = cv2.estimateAffinePartial2D(np.asarray(kps, np.float32), _ARCFACE_TEMPLATE, method=cv2.LMEDS)
+        # RANSAC 門檻設很大 = 五點全當 inlier 做最小平方(等價 insightface 的 Umeyama);LMEDS 會隨機丟點,對齊會跳
+        M, _ = cv2.estimateAffinePartial2D(np.asarray(kps, np.float32), _ARCFACE_TEMPLATE, method=cv2.RANSAC, ransacReprojThreshold=1e4, refineIters=10)
         if M is None: return None
         return cv2.warpAffine(bgr, M, (112, 112), borderValue=0)
 
@@ -117,6 +118,7 @@ class FaceEmbedder:
         if face is None: return None
         v = self.m.infer(cv2.cvtColor(face, cv2.COLOR_BGR2RGB))
         v = next(iter(v.values())).reshape(-1).astype(np.float32)
+        if not np.isfinite(v).all(): return None
         return v / (np.linalg.norm(v) + 1e-6)
 
 
@@ -126,7 +128,9 @@ def square_crop(img, box, pad=0.25):
     half = max(x2 - x1, y2 - y1) * (0.5 + pad)
     a, b = int(max(0, cx - half)), int(max(0, cy - half)); c, d = int(min(img.shape[1], cx + half)), int(min(img.shape[0], cy + half))
     crop = img[b:d, a:c]
-    return crop if crop.size else img[:64, :64]
+    if not crop.size: return img[:64, :64]
+    h, w = crop.shape[:2]; m = min(h, w); oy, ox = (h - m) // 2, (w - m) // 2   # 貼邊時夾成長方形,再切回正方形
+    return crop[oy:oy + m, ox:ox + m]
 
 
 def _b64_thumb(bgr):
@@ -149,12 +153,21 @@ class FaceDB:
             try:
                 data = json.load(open(path, encoding="utf-8"))
                 if not isinstance(data, list): raise ValueError("頂層不是陣列")
+                loaded, bad = [], 0
                 for p in data:
-                    vec = np.asarray(p["vec"], np.float32)
-                    if vec.shape != (EMB_DIM,): print(f"[FaceDB] 略過 {p.get('name')}:向量長度 {vec.shape} 不是 {EMB_DIM}"); continue
-                    self.people.append(dict(name=str(p["name"]), vec=vec, thumb=_thumb_from_b64(p.get("thumb", ""))))
-            except Exception as e:  # noqa: BLE001  任何壞檔都不能讓程式起不來
+                    try:
+                        vec = np.asarray(p["vec"], np.float32)
+                        if vec.shape != (EMB_DIM,) or not np.isfinite(vec).all(): raise ValueError(f"向量長度 {vec.shape} 不是 {EMB_DIM} 或含 NaN")
+                        loaded.append(dict(name=str(p["name"]), vec=vec, thumb=_thumb_from_b64(p.get("thumb", ""))))
+                    except Exception as e:  # noqa: BLE001  單筆壞資料只略過,其他人保留
+                        bad += 1; print(f"[FaceDB] 略過一筆壞資料:{type(e).__name__} {e}")
+                self.people = loaded
+                if bad: self.last_error = f"faces.json 有 {bad} 筆壞資料已略過"
+            except Exception as e:  # noqa: BLE001  整檔壞掉:不載入,並先備份原檔避免之後 save() 覆蓋
                 self.last_error = f"faces.json 讀取失敗:{type(e).__name__}"; print("[FaceDB]", self.last_error, e)
+                try:
+                    import shutil; shutil.copy(path, path + ".bak")
+                except Exception: pass
 
     def save(self):
         try:
@@ -166,22 +179,28 @@ class FaceDB:
             self.last_error = f"faces.json 無法寫入:{type(e).__name__}(檔案被其他程式開著?)"; print("[FaceDB]", self.last_error, e); return False
 
     def add(self, name, vec, thumb=None):
-        """新增或覆蓋同名;回傳 (是否為覆蓋, 是否存檔成功)。"""
+        """新增或覆蓋同名;回傳 (是否為覆蓋, 是否存檔成功)。向量含 NaN 直接拒絕。"""
+        vec = np.asarray(vec, np.float32)
+        if vec.shape != (EMB_DIM,) or not np.isfinite(vec).all():
+            self.last_error = "特徵向量異常,未建檔"; return False, False
         existed = any(p["name"] == name for p in self.people)
         self.people = [p for p in self.people if p["name"] != name]
         self.people.append(dict(name=name, vec=np.asarray(vec, np.float32), thumb=thumb))
         return existed, self.save()
 
     def remove_last(self):
-        if self.people: p = self.people.pop(); self.save(); return p["name"]
-        return None
+        """刪最後一筆;存檔失敗就放回去並回傳 None(畫面顯示 last_error)。"""
+        if not self.people: self.last_error = None; return None
+        p = self.people.pop()
+        if not self.save(): self.people.append(p); return None
+        return p["name"]
 
     def match(self, vec, thr=0.45, margin=0.08):
         """回傳 (name, sim);沒有超過門檻、或第一名與第二名太接近(分不清是誰)時回傳 (None, best_sim)。"""
         if not self.people or vec is None: return None, 0.0
         sims = np.array([float(np.dot(p["vec"], vec)) for p in self.people])
         order = np.argsort(sims)[::-1]; best = sims[order[0]]
-        if best < thr: return None, float(best)
+        if not np.isfinite(best) or best < thr: return None, float(best) if np.isfinite(best) else 0.0
         if len(order) > 1 and best - sims[order[1]] < margin and sims[order[1]] >= thr: return None, float(best)
         return self.people[order[0]]["name"], float(best)
 

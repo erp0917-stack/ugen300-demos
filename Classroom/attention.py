@@ -57,7 +57,7 @@ def instant_flags(kps, frame_h=None):
     eyes_y = [kps[i][1] for i in (L_EYE, R_EYE) if _ok(kps, i)]
     eye_line = sum(eyes_y) / len(eyes_y) if eyes_y else (kps[NOSE][1] if _ok(kps, NOSE) else None)
     # 舉手:手腕高於眼線 0.6 肩寬 + 手肘高於肩線;手腕出框時要手肘高於眼線(整隻手臂舉直)
-    if sho_y is not None and sho_w and eye_line is not None:
+    if sho_y is not None and sho_w and sho_w >= MIN_SHO_W_FACE * 0.5 and eye_line is not None:   # 側身肩寬趨近 0 時門檻失效,不判
         for wri, elb in ((L_WRI, L_ELB), (R_WRI, R_ELB)):
             elbow_up = _ok(kps, elb) and kps[elb][1] < sho_y
             if _ok(kps, wri):
@@ -99,8 +99,9 @@ def assign_phones(phone_boxes, persons):
             x1, y1, x2, y2 = box
             if not (x1 <= cx <= x2 and y1 <= cy <= y2): continue
             if sho_y is not None and cy < sho_y: continue        # 舉到肩線以上(拍投影片)不算
-            if wrists and sho_w:
-                if min(((wx - cx) ** 2 + (wy - cy) ** 2) ** 0.5 for wx, wy in wrists) > PHONE_NEAR_WRIST * sho_w: continue
+            if wrists:
+                scale = sho_w if sho_w else (x2 - x1) * 0.5     # 肩膀看不到就用人框寬的一半當尺度
+                if min(((wx - cx) ** 2 + (wy - cy) ** 2) ** 0.5 for wx, wy in wrists) > PHONE_NEAR_WRIST * scale: continue
             d = ((x1 + x2) / 2 - cx) ** 2 + ((y1 + y2) / 2 - cy) ** 2
             if best is None or d < best_d: best, best_d = pid, d
         if best is not None: out.setdefault(best, []).append(pb)

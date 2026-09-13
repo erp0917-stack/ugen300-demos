@@ -75,7 +75,11 @@ def open_camera(source="auto", width=1280, height=720):
         idx, nm = found
         print(f"[鏡頭] 使用 index={idx}:{nm}", flush=True)
         return _open(idx, width, height), idx, nm
-    idx = int(source)
+    try:
+        idx = int(source)
+    except (TypeError, ValueError):
+        print(f"[鏡頭] --source 只能是 auto 或編號,收到 {source!r}", flush=True)
+        return cv2.VideoCapture(), -1, ""
     names = _names(); nm = names[idx] if idx < len(names) else f"Camera {idx}"
     print(f"[鏡頭] 指定 index={idx}:{nm}", flush=True)
     return _open(idx, width, height), idx, nm

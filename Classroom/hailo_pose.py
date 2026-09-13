@@ -166,11 +166,15 @@ class PoseEstimator:
 
     # ----------------------------------------------------------
     def _preprocess(self, frame):
-        """縮放成模型輸入大小，回傳 (H,W,3) uint8 連續陣列（InferModel 餵單張）。"""
+        """letterbox(等比縮放貼左上、其餘補黑)成模型輸入大小，回傳 (H,W,3) uint8 連續陣列。
+        YOLOv8-pose 是用 letterbox 訓練的；直接拉成 640x640 會把 16:9 畫面橫向壓 1.78 倍，肩寬失真、後排小人關鍵點變差。"""
         self._orig_h, self._orig_w = frame.shape[:2]
-        rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-        resized = cv2.resize(rgb, (self.input_w, self.input_h))
-        return np.ascontiguousarray(resized, dtype=np.uint8)
+        r = min(self.input_w / self._orig_w, self.input_h / self._orig_h)
+        nw, nh = max(1, int(self._orig_w * r)), max(1, int(self._orig_h * r))
+        canvas = np.zeros((self.input_h, self.input_w, 3), np.uint8)
+        canvas[:nh, :nw] = cv2.resize(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB), (nw, nh))
+        self._ratio = r
+        return np.ascontiguousarray(canvas, dtype=np.uint8)
 
     def _run_inference(self, frame):
         """跑一次同步推論，回傳 {output_name: ndarray}（已加上 batch 維度）。"""
@@ -338,9 +342,8 @@ class PoseEstimator:
         order2 = scores_final.argsort()[::-1]
         kpts_final = kpts_final[order2]
 
-        # 模型空間 → 原圖（直接縮放，沒有 letterbox）
-        sx = self._orig_w / float(self.input_w)
-        sy = self._orig_h / float(self.input_h)
+        # 模型空間 → 原圖（letterbox 貼左上，所以只需除以同一個縮放比）
+        sx = sy = 1.0 / self._ratio
 
         people = []
         for person in kpts_final:

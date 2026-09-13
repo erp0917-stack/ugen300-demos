@@ -160,7 +160,14 @@ class ObjectDetector:
             output = raw
 
         # 取出「這一張畫面、每個類別一組偵測」的結構：per_class
-        if isinstance(output, np.ndarray) and output.dtype == object:
+        if isinstance(output, np.ndarray) and output.ndim == 1 and output.dtype != object:
+            # D. 攤平的 HailoRT NMS 緩衝：每類 [count, count×(ymin,xmin,ymax,xmax,score)] 緊排
+            per_class = []; i = 0
+            for _ in range(len(COCO_LABELS)):
+                if i >= output.size: per_class.append(None); continue
+                cnt = int(output[i]); i += 1
+                per_class.append(output[i:i + cnt * 5].reshape(cnt, 5) if cnt > 0 else None); i += cnt * 5
+        elif isinstance(output, np.ndarray) and output.dtype == object:
             # A. 物件陣列：output[0] 是長度=類別數的 list
             per_class = output[0]
         elif isinstance(output, np.ndarray) and output.ndim == 4:
@@ -197,10 +204,8 @@ class ObjectDetector:
 
     def _scale_box(self, box_norm):
         """已寫好：把模型座標換算回原圖像素 (x1,y1,x2,y2)"""
-        x1, y1, x2, y2 = box_norm
-        sx = self._orig_w if x1 <= 1.0 else self._orig_w / self.input_w
-        sy = self._orig_h if y1 <= 1.0 else self._orig_h / self.input_h
-        return (int(x1 * sx), int(y1 * sy), int(x2 * sx), int(y2 * sy))
+        x1, y1, x2, y2 = box_norm          # 內建 NMS 的 HEF 一律輸出 0~1 正規化座標，不逐框猜
+        return (int(x1 * self._orig_w), int(y1 * self._orig_h), int(x2 * self._orig_w), int(y2 * self._orig_h))
 
     @staticmethod
     def label_name(class_id):

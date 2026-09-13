@@ -2,6 +2,7 @@
 import os
 import sys
 import tempfile
+import json
 
 import numpy as np
 
@@ -52,6 +53,30 @@ def test_save_failure_returns_false():
 def test_square_crop_is_square():
     img = np.zeros((300, 400, 3), np.uint8); c = fe.square_crop(img, (100, 50, 160, 140))
     assert abs(c.shape[0] - c.shape[1]) <= 1
+
+
+def test_template_matches_insightface_arcface_src():
+    src = np.array([[38.2946, 51.6963], [73.5318, 51.5014], [56.0252, 71.7366], [41.5493, 92.3655], [70.7299, 92.2041]], np.float32)
+    assert np.allclose(fe._ARCFACE_TEMPLATE, src)
+    assert fe.FaceEmbedder.align(np.zeros((300, 300, 3), np.uint8), src * 2 + 50).shape == (112, 112, 3)
+
+
+def test_square_crop_at_border_is_square():
+    img = np.zeros((300, 400, 3), np.uint8); c = fe.square_crop(img, (0, 0, 60, 90))
+    assert c.shape[0] == c.shape[1]
+
+
+def test_nan_vector_rejected():
+    db = fe.FaceDB(os.path.join(tempfile.mkdtemp(), "f.json")); v = unit(1); v[0] = np.nan
+    assert db.add("N", v) == (False, False) and db.people == []
+    db.add("A", unit(2)); assert db.match(v)[0] is None
+
+
+def test_partial_bad_db_keeps_good_rows():
+    p = os.path.join(tempfile.mkdtemp(), "f.json")
+    good = [round(float(x), 5) for x in unit(1)]
+    open(p, "w", encoding="utf-8").write(json.dumps([{"name": "A", "vec": good}, {"name": "B", "vec": "oops"}, {"name": "C", "vec": good}]))
+    db = fe.FaceDB(p); assert db.names() == ["A", "C"] and db.last_error
 
 
 def test_align_degenerate_returns_none():

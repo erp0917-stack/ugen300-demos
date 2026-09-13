@@ -126,7 +126,7 @@ def compose(frame, tracks_kps, states, phones, count, summary, enabled, history,
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--source", default="auto", help="auto=外接優先,否則內建;或指定編號 0/1")
-    ap.add_argument("--pose-hef", default="yolov8m_pose.hef"); ap.add_argument("--det-hef", default="yolov11m.hef")
+    ap.add_argument("--pose-hef", default=os.path.join(HERE, "yolov8m_pose.hef")); ap.add_argument("--det-hef", default=os.path.join(HERE, "yolov11m.hef"))
     ap.add_argument("--conf", type=float, default=0.3); ap.add_argument("--flip", action="store_true", help="鏡像(自己對著筆電測試時用;鏡頭朝教室時不用)")
     ap.add_argument("--image", default="", help="用靜態照片代替鏡頭(教室合照測試用)")
     ap.add_argument("--fullscreen", action="store_true"); ap.add_argument("--selftest", action="store_true")
@@ -134,13 +134,17 @@ def main():
     args = ap.parse_args()
     fatal = None; pose = det = None
     try:
+        for hef in (args.pose_hef, args.det_hef):
+            if not os.path.isfile(hef): raise FileNotFoundError(f"找不到模型檔 {os.path.basename(hef)}")
         pose = PoseEstimator(args.pose_hef, conf_threshold=args.conf); det = ObjectDetector(args.det_hef, conf_threshold=args.conf)
         if not (getattr(pose, "_ready", True) and getattr(det, "_ready", True)): raise RuntimeError("hailo_platform 未安裝")
+    except FileNotFoundError as e:
+        pose = det = None; fatal = f"{e}\n請依 README 把 HEF 放進 Classroom 資料夾"; print("[模型]", repr(e))
     except Exception as e:  # noqa: BLE001
-        fatal = f"模型載入失敗:{type(e).__name__}\n請確認 UGen300 已插上,且沒有其他 demo 正在使用它"; print("[模型]", repr(e))
+        pose = det = None; fatal = f"模型載入失敗:{type(e).__name__}\n請確認 UGen300 已插上,且沒有其他 demo 正在使用它"; print("[模型]", repr(e))
     still = None; cap = None
     if args.image:
-        still = cv2.imdecode(np.fromfile(args.image, np.uint8), cv2.IMREAD_COLOR)
+        still = cv2.imdecode(np.fromfile(args.image, np.uint8), cv2.IMREAD_COLOR) if os.path.isfile(args.image) else None
         if still is None: print("讀不到圖片:", args.image); return
     else:
         try: cap = open_camera(args.source)[0]
@@ -160,7 +164,9 @@ def main():
     try:
         while True:
             if still is not None: ok, frame = True, still.copy()
-            else: ok, frame = cap.read(); frame = frame if ok else np.zeros((720, 1280, 3), np.uint8)
+            else:
+                ok, frame = cap.read()
+                if not ok: frame = np.zeros((720, 1280, 3), np.uint8); people = []; dets = []
             if ui["flip"] and ok: frame = cv2.flip(frame, 1)
             now = time.time()
             if frozen is not None: frame = frozen
@@ -169,9 +175,11 @@ def main():
                     t = time.time()
                     if frames % 2 == 0: people = pose.infer_multi(frame) or []; ui["ms_pose"] = 0.8 * ui["ms_pose"] + 0.2 * (time.time() - t) * 1000
                     else: dets = det.infer(frame); ui["ms_det"] = 0.8 * ui["ms_det"] + 0.2 * (time.time() - t) * 1000
-                    n_err = 0
-                except Exception as e:  # noqa: BLE001  單次抖動不該讓 demo 永久停擺
+                    n_err = max(0, n_err - 1)      # 只有一個模型一直壞時仍會累積到 ERR_FATAL
+                except Exception as e:  # noqa: BLE001  單次抖動不該讓 demo 永久停擺;失敗的那個模型結果清空,不沿用舊值
                     n_err += 1; err_at = now; ui["warn"] = f"推論失敗({n_err}):{type(e).__name__}"; print("[推論]", repr(e))
+                    if frames % 2 == 0: people = []
+                    else: dets = []
                     if n_err >= ERR_FATAL: fatal = f"UGen300 連續推論失敗 {n_err} 次\n請重新插拔後重開程式"
                 phones = [b for l, s, b in dets if l == "cell phone" and s >= PHONE_CONF]
                 n_person = sum(1 for l, _, _ in dets if l == "person")
@@ -195,16 +203,14 @@ def main():
                 last_summary = A.summarize({t: s for t, s in states.items() if t in tracks_kps}, frame.shape[1], frame.shape[0])
                 n_judged = len(tracks_kps)          # 專注度只看「有骨架、真的被判斷過」的人,不拿 YOLO 人數當分母(後排沒骨架不算專心)
                 if n_judged > 0:
-                    att_now = 100 * max(0, n_judged - min(last_summary["inattentive"], n_judged)) / n_judged
-                    att_hist.append((now, att_now))
-                    while att_hist and now - att_hist[0][0] > ATT_WINDOW: att_hist.popleft()
-                    ui["att"] = int(round(float(np.mean([v for _, v in att_hist])))); history.append((now, ui["att"]))
-                else:
-                    ui["att"] = None; att_hist.clear()
+                    att_hist.append((now, 100 * max(0, n_judged - min(last_summary["inattentive"], n_judged)) / n_judged))
+                while att_hist and now - att_hist[0][0] > ATT_WINDOW: att_hist.popleft()   # 一幀沒骨架不清空,只按時間淘汰
+                if att_hist: ui["att"] = int(round(float(np.mean([v for _, v in att_hist])))); history.append((now, ui["att"]))
+                else: ui["att"] = None
                 while history and now - history[0][0] > 60: history.popleft()
             if not ok and not fatal and still is None: ui["warn"] = "鏡頭沒有畫面(USB 鬆了?)"; err_at = now
             if ui["warn"] and now - err_at > ERR_CLEAR_SEC: ui["warn"] = ""
-            ui["now"] = now
+            ui["now"] = freeze_t if frozen is not None else now
             canvas = compose(frame, tracks_kps, states, phones, count, last_summary, enabled, history, ui, fatal)
             cv2.imshow(WIN, canvas); frames += 1
             if args.snapshot and frames >= args.snapshot_frames:
@@ -220,7 +226,9 @@ def main():
                 else:
                     dt = time.time() - freeze_t
                     for s in states.values(): s.shift(dt)      # 凍結期間不算持續時間
+                    history = deque((t + dt, v) for t, v in history); att_hist = deque((t + dt, v) for t, v in att_hist)
                     frozen = None; ui["frozen"] = False
+            if frozen is not None: continue                     # 凍結中不處理 f / r / 1-4,避免畫面與面板不一致
             if key == "f": ui["flip"] = not ui["flip"]
             if key == "r": history.clear(); att_hist.clear(); count_hist.clear(); states.clear(); tracker = CentroidTracker(max_missed=10, iou_thresh=0.2, dist_thresh=120)
             if key == "s":

@@ -75,8 +75,12 @@ def preload_faces(det, emb, db):
     for p in sorted(glob.glob(os.path.join(FACES_DIR, "*.*"))):
         name = os.path.splitext(os.path.basename(p))[0]
         if name in db.names() or not p.lower().endswith((".jpg", ".jpeg", ".png", ".bmp")): continue
-        img = cv2.imdecode(np.fromfile(p, np.uint8), cv2.IMREAD_COLOR)
-        if img is None: skipped.append(name); continue
+        if not os.path.isfile(p) or os.path.getsize(p) == 0: skipped.append(name); print(f"[預先建檔] {name}:空檔或不是檔案,略過"); continue
+        try:
+            img = cv2.imdecode(np.fromfile(p, np.uint8), cv2.IMREAD_COLOR)
+        except Exception as e:  # noqa: BLE001
+            print(f"[預先建檔] {name}:讀檔失敗 {type(e).__name__},略過"); skipped.append(name); continue
+        if img is None: skipped.append(name); print(f"[預先建檔] {name}:不是可讀的圖片,略過"); continue
         if max(img.shape[:2]) > 1600:
             s = 1600 / max(img.shape[:2]); img = cv2.resize(img, None, fx=s, fy=s)
         try:
@@ -177,9 +181,13 @@ def main():
     try:
         det = FaceDetector(args.det, conf=0.5); emb = FaceEmbedder()
     except Exception as e:  # noqa: BLE001
-        fatal = f"模型載入失敗:{type(e).__name__}\n請確認 UGen300 已插上,且沒有其他 demo 正在使用它"; print("[模型]", e)
+        det = emb = None
+        fatal = f"模型載入失敗:{type(e).__name__}\n請確認 UGen300 已插上,且沒有其他 demo 正在使用它"; print("[模型]", repr(e))
     db = FaceDB(DB_PATH)
-    if det and emb: preload_faces(det, emb, db)
+    if det and emb and not fatal:
+        try: preload_faces(det, emb, db)
+        except Exception as e:  # noqa: BLE001  預先建檔出任何問題都不能讓程式起不來
+            print("[預先建檔] 整批略過:", repr(e))
     still = None
     if args.image:
         still = cv2.imdecode(np.fromfile(args.image, np.uint8), cv2.IMREAD_COLOR)
@@ -278,7 +286,7 @@ def main():
             if key == "e" and ui["phase"] == "live": ui.update(phase="countdown", banner=""); t0 = now
             if key == "d":
                 n = db.remove_last(); checked.pop(n, None); first_seen.pop(n, None)
-                ui.update(msg=(f"已刪除建檔:{n}" if n else "沒有建檔資料"), msg_bad=not n); msg_t = now + 4
+                ui.update(msg=(f"已刪除建檔:{n}" if n else (db.last_error or "沒有建檔資料")), msg_bad=not n); msg_t = now + 4
             if key == "r":
                 checked.clear(); first_seen.clear(); reset_until = now + RESET_GRACE
                 ui.update(msg="報到名單已清空", msg_bad=False, banner=""); msg_t = now + 4
