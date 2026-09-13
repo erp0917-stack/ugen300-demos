@@ -34,21 +34,21 @@ def test_real_head_down():
     assert A.instant_flags(person(nose=(100, 148)), FH)["head_down"]                     # 鼻距肩線 0.15 肩寬
 
 
-def test_raise_hand_needs_elbow_up_and_wrist_above_eyes():
-    assert A.instant_flags(person(elbows=((45, 120), (155, 220)), wrists=((50, 40), (150, 260))), FH)["raise_"]
+def test_raise_hand_needs_elbow_up_and_wrist_well_above_eyes():
+    assert A.instant_flags(person(elbows=((45, 120), (155, 220)), wrists=((50, 20), (150, 260))), FH)["raise_"]   # 眼線 95,手腕 20:高 75 > 0.6*80
     assert not A.instant_flags(person(wrists=((50, 90), (150, 260))), FH)["raise_"]      # 摸頭:手肘還在肩下
-    assert A.instant_flags(person(elbows=((45, 120), (155, 220)), hide=(9,)), FH)["raise_"]   # 手腕出框、手肘高於肩
+    assert not A.instant_flags(person(elbows=((45, 120), (155, 220)), wrists=((50, 60), (150, 260))), FH)["raise_"]   # 撥瀏海:手腕只比眼線高 35
+    assert A.instant_flags(person(elbows=((45, 60), (155, 220)), hide=(9,)), FH)["raise_"]    # 手腕出框、手肘高於眼線
+    assert not A.instant_flags(person(elbows=((45, 120), (155, 220)), hide=(9,)), FH)["raise_"]   # 手腕出框但手肘只到肩上
 
 
 def test_sleeping_nose_below_shoulder():
     assert A.instant_flags(person(nose=(100, 170)), FH)["sleeping"]
 
 
-def test_head_missing_only_counts_when_shoulders_low_in_frame():
-    assert not A.instant_flags(person(hide=(0, 1, 2)), FH)["sleeping"]              # 肩膀在畫面上半:頭出框,不是趴下
-    assert A.instant_flags(person(hide=(0, 1, 2), dy=400), FH)["sleeping"]          # 肩膀在下半才算
-    near = person(sho=((0, 400), (600, 400)), hide=(0, 1, 2))                      # 肩寬 600、肩線 y=400:上方放不下頭 → 出框
-    assert not A.instant_flags(near, FH)["sleeping"]
+def test_head_missing_is_never_sleeping():
+    for k in (person(hide=(0, 1, 2)), person(hide=(0, 1, 2), dy=400), person(hide=(0, 1, 2, 3, 4))):   # 出框、背對都不判
+        f = A.instant_flags(k, FH); assert not f["sleeping"] and not f["head_down"] and not f["turned"]
 
 
 def test_far_small_person_skips_face_rules():
@@ -63,17 +63,22 @@ def test_turned_one_eye():
 
 
 def test_assign_phones():
-    persons = [(1, (0, 0, 200, 300), 160), (2, (150, 0, 400, 300), 160)]
+    persons = [(1, (0, 0, 200, 300), 160, 80, [(100, 210)]), (2, (150, 0, 400, 300), 160, 80, [(240, 210)])]
     out = A.assign_phones([(90, 200, 110, 220), (230, 200, 250, 220), (90, 50, 110, 70), (500, 200, 520, 220)], persons)
     assert out == {1: [(90, 200, 110, 220)], 2: [(230, 200, 250, 220)]}      # 重疊區歸最近者;肩線以上與框外不算
+    desk = [(1, (0, 0, 400, 600), 160, 80, [(100, 250)])]                    # 手腕在 (100,250),手機在桌角 (350,550):距離 > 1.2 肩寬 → 不算
+    assert A.assign_phones([(340, 540, 360, 560)], desk) == {}
+    no_wrist = [(1, (0, 0, 400, 600), 160, 80, [])]                          # 手腕看不到 → 退回框規則
+    assert A.assign_phones([(340, 540, 360, 560)], no_wrist) == {1: [(340, 540, 360, 560)]}
+    assert A.wrists_of(person()) == [(50, 260), (150, 260)] and A.wrists_of(person(hide=(9, 10))) == []
 
 
 def test_hold_timing_priority_and_freeze_shift():
     s = A.PersonState(); en = {k: True for k in A.RULES}
-    k = person(elbows=((45, 120), (155, 220)), wrists=((50, 40), (150, 260)), eyes=((90, 112), (110, 112)))
+    k = person(elbows=((45, 120), (155, 220)), wrists=((50, 20), (150, 260)), eyes=((90, 112), (110, 112)))
     ph = [(90, 200, 110, 220)]
     assert s.update(k, ph, en, now=0.0, frame_h=FH) == "ok" and not s.raised
-    assert s.update(k, ph, en, now=1.1, frame_h=FH) == "ok" and s.raised
+    assert s.update(k, ph, en, now=1.3, frame_h=FH) == "ok" and s.raised
     assert s.update(k, ph, en, now=2.1, frame_h=FH) == "head_down"
     s.shift(10.0)                                                   # 凍結 10 秒
     assert s.update(k, ph, en, now=12.5, frame_h=FH) == "head_down"   # 手機 2.5 秒有效時間,還不到 3

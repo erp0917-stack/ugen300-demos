@@ -105,7 +105,7 @@ def compose(frame, tracks_kps, states, phones, count, summary, enabled, history,
         draw_text(canvas, f"[{i}]", (bx, yy + 4), 15, (110, 110, 118)); draw_text(canvas, A.RULE_NAMES[k], (bx + 34, yy), 22, col)
         draw_text(canvas, f"{summary['by'][k]}" if on else "已關閉", (W - 24, yy + 2), 20 if on else 16, col, anchor="ra")
         yy += 34
-    # 專注度(最近 ATT_WINDOW 秒中位數)+ 走勢
+    # 專注度(最近 ATT_WINDOW 秒平均)+ 走勢
     att = ui.get("att")
     if att is None: draw_text(canvas, "專注度 --", (px + 24, 478), 34, C_DIM)
     else: draw_text(canvas, f"專注度 {att}%", (px + 24, 478), 34, C_OK if att >= 80 else C_ACC if att >= 60 else C_PHONE)
@@ -113,7 +113,7 @@ def compose(frame, tracks_kps, states, phones, count, summary, enabled, history,
     cv2.rectangle(canvas, (gx0, gy0), (gx0 + gw, gy0 + gh), (50, 50, 58), -1)
     cv2.line(canvas, (gx0, gy0 + 2), (gx0 + gw, gy0 + 2), (70, 90, 76), 1)
     if len(history) >= 2:
-        t_now = history[-1][0]
+        t_now = ui.get("now", history[-1][0])
         pts = [(int(gx0 + gw * (1 - (t_now - t) / 60.0)), int(gy0 + gh - 2 - (gh - 4) * v / 100)) for t, v in history if t_now - t <= 60]
         for i in range(1, len(pts)): cv2.line(canvas, pts[i - 1], pts[i], C_OK, 2)
     draw_text(canvas, "最近 60 秒專注度", (gx0, gy0 + gh + 4), 16, C_DIM)
@@ -135,6 +135,7 @@ def main():
     fatal = None; pose = det = None
     try:
         pose = PoseEstimator(args.pose_hef, conf_threshold=args.conf); det = ObjectDetector(args.det_hef, conf_threshold=args.conf)
+        if not (getattr(pose, "_ready", True) and getattr(det, "_ready", True)): raise RuntimeError("hailo_platform 未安裝")
     except Exception as e:  # noqa: BLE001
         fatal = f"模型載入失敗:{type(e).__name__}\n請確認 UGen300 已插上,且沒有其他 demo 正在使用它"; print("[模型]", repr(e))
     still = None; cap = None
@@ -152,7 +153,7 @@ def main():
               f"person={sum(l == 'person' for l, _, _ in dets)} phone={sum(l == 'cell phone' and s >= PHONE_CONF for l, s, _ in dets)}"); return
     cv2.namedWindow(WIN, cv2.WINDOW_NORMAL | cv2.WINDOW_KEEPRATIO)
     cv2.setWindowProperty(WIN, cv2.WND_PROP_FULLSCREEN, cv2.WINDOW_FULLSCREEN) if args.fullscreen else cv2.resizeWindow(WIN, W, H)
-    enabled = {k: True for k in A.RULES}; tracker = CentroidTracker(max_missed=15, iou_thresh=0.2, dist_thresh=160)
+    enabled = {k: True for k in A.RULES}; tracker = CentroidTracker(max_missed=10, iou_thresh=0.2, dist_thresh=120)
     states = {}; people = []; dets = []; phones = []; count_hist = deque(maxlen=5); history = deque(); att_hist = deque()
     frozen = None; freeze_t = 0.0; frames = 0; last_summary = A.summarize({}, W, H); count = 0; tracks_kps = {}
     n_err = 0; err_at = 0.0; ui = dict(warn="", frozen=False, flip=args.flip, ms_pose=0.0, ms_det=0.0, att=None)
@@ -183,7 +184,7 @@ def main():
                 for tr in tracks:
                     if tr.missed == 0 and tr.box in hb2:
                         fb, kps = hb2[tr.box]; tracks_kps[tr.id] = (fb, kps)
-                        persons.append((tr.id, fb, A.shoulder_line(kps)[0]))
+                        sy, sw = A.shoulder_line(kps); persons.append((tr.id, fb, sy, sw, A.wrists_of(kps)))
                 my_phones = A.assign_phones(phones, persons)
                 for tid, (fb, kps) in tracks_kps.items():
                     states.setdefault(tid, A.PersonState()).update(kps, my_phones.get(tid, []), enabled, now, box=fb, frame_h=frame.shape[0])
@@ -197,11 +198,13 @@ def main():
                     att_now = 100 * max(0, n_judged - min(last_summary["inattentive"], n_judged)) / n_judged
                     att_hist.append((now, att_now))
                     while att_hist and now - att_hist[0][0] > ATT_WINDOW: att_hist.popleft()
-                    ui["att"] = int(round(float(np.median([v for _, v in att_hist])))); history.append((now, ui["att"]))
+                    ui["att"] = int(round(float(np.mean([v for _, v in att_hist])))); history.append((now, ui["att"]))
                 else:
                     ui["att"] = None; att_hist.clear()
                 while history and now - history[0][0] > 60: history.popleft()
+            if not ok and not fatal and still is None: ui["warn"] = "鏡頭沒有畫面(USB 鬆了?)"; err_at = now
             if ui["warn"] and now - err_at > ERR_CLEAR_SEC: ui["warn"] = ""
+            ui["now"] = now
             canvas = compose(frame, tracks_kps, states, phones, count, last_summary, enabled, history, ui, fatal)
             cv2.imshow(WIN, canvas); frames += 1
             if args.snapshot and frames >= args.snapshot_frames:
@@ -209,7 +212,7 @@ def main():
             k = cv2.waitKey(1) & 0xFF
             key = chr(k).lower() if 32 <= k < 127 else ("esc" if k == 27 else "")
             if key in ("q", "esc"): break
-            if not args.fullscreen and cv2.getWindowProperty(WIN, cv2.WND_PROP_VISIBLE) < 1: break   # 按了視窗的 X
+            if cv2.getWindowProperty(WIN, cv2.WND_PROP_VISIBLE) < 1: break   # 按了視窗的 X / Alt+F4
             if fatal: continue
             if key in ("1", "2", "3", "4"): rk = A.RULES[int(key) - 1]; enabled[rk] = not enabled[rk]
             if key == " ":
@@ -219,7 +222,7 @@ def main():
                     for s in states.values(): s.shift(dt)      # 凍結期間不算持續時間
                     frozen = None; ui["frozen"] = False
             if key == "f": ui["flip"] = not ui["flip"]
-            if key == "r": history.clear(); att_hist.clear(); count_hist.clear(); states.clear(); tracker = CentroidTracker(max_missed=15, iou_thresh=0.2, dist_thresh=160)
+            if key == "r": history.clear(); att_hist.clear(); count_hist.clear(); states.clear(); tracker = CentroidTracker(max_missed=10, iou_thresh=0.2, dist_thresh=120)
             if key == "s":
                 p = os.path.join(HERE, f"classroom_{datetime.now():%Y%m%d_%H%M%S}.png"); cv2.imwrite(p, canvas); print("[存圖]", p)
     finally:

@@ -126,7 +126,7 @@ class ObjectDetector:
 
         # 同步執行（逾時 10 秒）
         try:
-            self.configured.run([bindings], 10000)
+            self.configured.run([bindings], 2000)
         except TypeError:
             # 某些版本參數名為 timeout_ms 或不需要逾時
             self.configured.run([bindings])

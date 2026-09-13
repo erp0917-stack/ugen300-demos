@@ -189,7 +189,7 @@ class PoseEstimator:
             out_bufs[name] = buf
 
         try:
-            self.configured.run([bindings], 10000)
+            self.configured.run([bindings], 2000)
         except TypeError:
             self.configured.run([bindings])
 
