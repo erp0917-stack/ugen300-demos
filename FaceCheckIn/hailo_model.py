@@ -27,19 +27,21 @@ class HailoModel:
         self.input_h, self.input_w = int(ishape[0]), int(ishape[1])
         self.output_shapes = {n: tuple(self.infer_model.output(n).shape) for n in self.output_names}
         self.configured = self.infer_model.configure()
+        # bindings 與輸出緩衝只建一次,之後重複使用(省每幀的配置成本)
+        self._bindings = self.configured.create_bindings()
+        self._bufs = {n: np.zeros(self.output_shapes[n], dtype=np.float32) for n in self.output_names}
+        for n, buf in self._bufs.items(): self._bindings.output(n).set_buffer(buf)
 
     def infer(self, rgb):
-        """rgb: (input_h, input_w, 3) uint8 連續陣列。"""
-        b = self.configured.create_bindings()
-        b.input().set_buffer(np.ascontiguousarray(rgb, dtype=np.uint8))
-        bufs = {}
-        for n in self.output_names:
-            bufs[n] = np.zeros(self.output_shapes[n], dtype=np.float32); b.output(n).set_buffer(bufs[n])
-        try: self.configured.run([b], 10000)
-        except TypeError: self.configured.run([b])
+        """rgb: (input_h, input_w, 3) uint8。回傳的陣列是內部緩衝的複本,呼叫端可放心保存。"""
+        if rgb.shape[:2] != (self.input_h, self.input_w):
+            raise ValueError(f"輸入大小 {rgb.shape[:2]} 不符模型 {(self.input_h, self.input_w)}")
+        self._bindings.input().set_buffer(np.ascontiguousarray(rgb, dtype=np.uint8))
+        try: self.configured.run([self._bindings], 10000)
+        except TypeError: self.configured.run([self._bindings])
         out = {}
         for n in self.output_names:
-            a = np.asarray(b.output(n).get_buffer(), dtype=np.float32)
+            a = np.array(self._bindings.output(n).get_buffer(), dtype=np.float32, copy=True)
             if a.ndim == 4 and a.shape[0] == 1: a = a[0]
             out[n] = a
         return out

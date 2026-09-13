@@ -42,7 +42,7 @@ _KEYPOINTS = 17
 _KP_CH = _KEYPOINTS * 3  # 51
 _DET_CH = (_REG_MAX + 1) * 4  # 64
 
-_NMS_IOU = 0.7
+_NMS_IOU = 0.5   # Classroom:0.7 偶爾讓一人出兩副骨架(人數、舉手 +1),收緊到 0.5
 _SCORE_PREFILTER = 0.001  # NMS 前的粗過濾門檻；最終以使用者 conf_threshold 為準
 _MAX_DETECTIONS = 300
 

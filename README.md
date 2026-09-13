@@ -53,6 +53,8 @@ The apps fall into three groups: pose and detection apps (Y series), vision-lang
 | **HeadCount** | Real-time person counter with freeze, peak and a 60-second trend — pan the camera across a room. |
 | **EdgeVsCloud** | Side-by-side dashboard: measured UGen300 latency/fps vs measured network RTT plus cloud cost and power estimates. |
 | **PhotoRestore** | Drag in an old photo: brighten, denoise and 2x upscale on the accelerator, then compare before/after with a slider. Works on UGen200 too. |
+| **FaceCheckIn** | 30-second face enrolment (press `e`, or drop photos into `faces/`) and hands-free check-in: SCRFD + ArcFace, only 512-d vectors are stored, never photos. Works on UGen200 too. |
+| **Classroom** | One window, many signals: head count, raised hands with a 3x3 seat map, inattentive count (head down / phone / asleep / turned away) and a 60-second attention trend. yolov8m_pose + yolov11m. Works on UGen200 too. |
 
 ## Requirements
 
@@ -114,7 +116,7 @@ Where to put each file:
 - **`yolov8s_pose.hef`** goes into each of the `Y2/`, `Y3/`, `Y4/`, `Y5/` and `WakeUp/` folders — one copy in each.
 - **`Qwen3-1.7B-Instruct.hef`** (and optionally `Llama3.2-1B-Instruct.hef`) go into `models/` for OfflineChat.
 - **`zero_dce.hef`, `dncnn_color_blind.hef`, `real_esrgan_x2.hef`** go into `PhotoRestore/`.
-- **`yolov8s.hef`** goes into `Traffic/` and `EdgeVsCloud/`; **`yolov8m.hef`** into `HeadCount/`; **`yolov8s_pose.hef` + `hand_landmark_lite.hef`** into `HandDemos/`; **`paddle_ocr_v5_mobile_detection.hef` + `paddle_ocr_v5_mobile_recognition.hef`** into `Traffic/` (all from the Hailo Model Zoo v5.4.0 HAILO10H list).
+- **`scrfd_10g.hef` + `arcface_mobilefacenet.hef`** into `FaceCheckIn/`; **`yolov8m_pose.hef` + `yolov11m.hef`** into `Classroom/`; **`yolov8s.hef`** goes into `Traffic/` and `EdgeVsCloud/`; **`yolov8m.hef`** into `HeadCount/`; **`yolov8s_pose.hef` + `hand_landmark_lite.hef`** into `HandDemos/`; **`paddle_ocr_v5_mobile_detection.hef` + `paddle_ocr_v5_mobile_recognition.hef`** into `Traffic/` (all from the Hailo Model Zoo v5.4.0 HAILO10H list).
 - AirBand additionally needs `pip install pygame`.
 
 > **Note on model versions:** The YOLO models come from the Hailo Model Zoo (compiled for v5.3.0) and the GenAI models come from Hailo's public model server (v5.2.0). Both sets work together on the UGen300. We recommend installing HailoRT 5.3.x, which runs all of these models.

@@ -26,7 +26,36 @@ def test_db_roundtrip_and_match():
 
 def test_add_same_name_replaces():
     db = fe.FaceDB(os.path.join(tempfile.mkdtemp(), "f.json"))
-    db.add("A", unit(1)); db.add("A", unit(2)); assert len(db.people) == 1
+    assert db.add("A", unit(1)) == (False, True); assert db.add("A", unit(2)) == (True, True); assert len(db.people) == 1
+
+
+def test_match_margin_rejects_ambiguous():
+    db = fe.FaceDB(os.path.join(tempfile.mkdtemp(), "f.json")); a = unit(1)
+    db.add("甲", a); db.add("乙", a * 0.98 + unit(5) * 0.02)
+    assert db.match(a)[0] is None                      # 兩人幾乎一樣 → 分不清,不報到
+    db.add("乙", unit(6)); assert db.match(a)[0] == "甲"
+
+
+def test_dict_db_and_bad_vec_are_tolerated():
+    p = os.path.join(tempfile.mkdtemp(), "f.json"); open(p, "w").write('{"name": "x"}')
+    db = fe.FaceDB(p); assert db.people == [] and db.last_error
+    open(p, "w", encoding="utf-8").write('[{"name": "短", "vec": [1, 2]}]')
+    assert fe.FaceDB(p).people == []
+
+
+def test_save_failure_returns_false():
+    d = tempfile.mkdtemp(); db = fe.FaceDB(os.path.join(d, "f.json"))
+    os.makedirs(os.path.join(d, "f.json"))           # 同名資料夾擋住寫入
+    existed, saved = db.add("A", unit(1)); assert not saved and db.last_error
+
+
+def test_square_crop_is_square():
+    img = np.zeros((300, 400, 3), np.uint8); c = fe.square_crop(img, (100, 50, 160, 140))
+    assert abs(c.shape[0] - c.shape[1]) <= 1
+
+
+def test_align_degenerate_returns_none():
+    assert fe.FaceEmbedder.align(np.zeros((100, 100, 3), np.uint8), np.zeros((5, 2), np.float32)) is None
 
 
 def test_corrupt_db_is_empty():

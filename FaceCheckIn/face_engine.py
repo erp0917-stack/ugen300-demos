@@ -3,11 +3,12 @@
 face_engine.py —— 人臉偵測(SCRFD)+ 人臉特徵(ArcFace MobileFaceNet)+ 本機人臉庫。
 
     det = FaceDetector("scrfd_10g.hef")            # faces = det.detect(bgr) → [dict(box, score, kps(5,2))]
-    emb = FaceEmbedder("arcface_mobilefacenet.hef") # v = emb.embed(bgr, kps) → 512-d 單位向量
+    emb = FaceEmbedder("arcface_mobilefacenet.hef") # v = emb.embed(bgr, kps) → 512-d 單位向量(對齊失敗回傳 None)
     db  = FaceDB("faces.json")                      # db.add(name, vec, thumb) / db.match(vec) → (name, sim)
 
 SCRFD 解碼:三個 stride(8/16/32)各有 score(H,W,2)、bbox(H,W,8)、kps(H,W,20),每格 2 個 anchor,
 距離單位為 stride。ArcFace 用 5 點相似變換對齊到 112x112 標準模板。
+兩個模型在 Hailo-8L(UGen200)的 Model Zoo 清單中同樣存在。
 """
 import base64
 import json
@@ -20,6 +21,7 @@ from hailo_model import HailoModel
 
 _STRIDES = (8, 16, 32)
 _NUM_ANCHORS = 2
+EMB_DIM = 512
 # ArcFace 112x112 標準五點模板(左眼、右眼、鼻、左嘴角、右嘴角)
 _ARCFACE_TEMPLATE = np.array([[38.2946, 51.6963], [73.5318, 51.5014], [41.5493, 92.3655],
                               [70.7299, 92.2041], [56.1396, 92.2848]], dtype=np.float32)
@@ -39,6 +41,13 @@ def _nms(boxes, scores, thr=0.4):
     return keep
 
 
+def iou(a, b):
+    ax1, ay1, ax2, ay2 = a; bx1, by1, bx2, by2 = b
+    iw = max(0, min(ax2, bx2) - max(ax1, bx1)); ih = max(0, min(ay2, by2) - max(ay1, by1))
+    inter = iw * ih; ua = (ax2 - ax1) * (ay2 - ay1) + (bx2 - bx1) * (by2 - by1) - inter
+    return inter / ua if ua > 0 else 0.0
+
+
 class FaceDetector:
     def __init__(self, hef="scrfd_10g.hef", conf=0.5, nms=0.4):
         self.m = HailoModel(hef); self.conf = conf; self.nms = nms
@@ -54,20 +63,24 @@ class FaceDetector:
             ys, xs = np.mgrid[0:h, 0:w]
             ac = np.stack([xs, ys], -1).reshape(-1, 2).astype(np.float32) * s
             self._anchors[s] = np.repeat(ac, _NUM_ANCHORS, axis=0)
+        self._scores_are_logits = None   # 第一次推論時決定(HEF 有沒有把 sigmoid 編進去),之後固定
 
     def _letterbox(self, bgr):
         h, w = bgr.shape[:2]; r = min(self.m.input_w / w, self.m.input_h / h)
-        nw, nh = int(w * r), int(h * r)
+        nw, nh = max(1, int(w * r)), max(1, int(h * r))
         canvas = np.zeros((self.m.input_h, self.m.input_w, 3), np.uint8)
         canvas[:nh, :nw] = cv2.resize(bgr, (nw, nh))
         return cv2.cvtColor(canvas, cv2.COLOR_BGR2RGB), r
 
     def detect(self, bgr, max_faces=20):
         inp, r = self._letterbox(bgr); out = self.m.infer(inp)
+        if self._scores_are_logits is None:
+            allsc = np.concatenate([out[self.layers[(s, "score")]].reshape(-1) for s in _STRIDES])
+            self._scores_are_logits = bool(allsc.min() < 0 or allsc.max() > 1)
         boxes, scores, kpss = [], [], []
         for s in _STRIDES:
             sc = out[self.layers[(s, "score")]].reshape(-1)
-            if sc.min() < 0 or sc.max() > 1: sc = 1 / (1 + np.exp(-sc))
+            if self._scores_are_logits: sc = 1 / (1 + np.exp(-sc))
             bb = out[self.layers[(s, "bbox")]].reshape(-1, 4) * s
             kp = out[self.layers[(s, "kps")]].reshape(-1, 5, 2) * s
             idx = np.where(sc >= self.conf)[0]
@@ -93,14 +106,26 @@ class FaceEmbedder:
 
     @staticmethod
     def align(bgr, kps):
+        """五點相似變換對齊到 112x112;關鍵點退化(估不出變換)時回傳 None。"""
         M, _ = cv2.estimateAffinePartial2D(np.asarray(kps, np.float32), _ARCFACE_TEMPLATE, method=cv2.LMEDS)
+        if M is None: return None
         return cv2.warpAffine(bgr, M, (112, 112), borderValue=0)
 
     def embed(self, bgr, kps):
         face = self.align(bgr, kps)
+        if face is None: return None
         v = self.m.infer(cv2.cvtColor(face, cv2.COLOR_BGR2RGB))
         v = next(iter(v.values())).reshape(-1).astype(np.float32)
         return v / (np.linalg.norm(v) + 1e-6)
+
+
+def square_crop(img, box, pad=0.25):
+    """以人臉框中心取正方形(含邊距),給縮圖用,不會壓扁。"""
+    x1, y1, x2, y2 = box; cx, cy = (x1 + x2) / 2, (y1 + y2) / 2
+    half = max(x2 - x1, y2 - y1) * (0.5 + pad)
+    a, b = int(max(0, cx - half)), int(max(0, cy - half)); c, d = int(min(img.shape[1], cx + half)), int(min(img.shape[0], cy + half))
+    crop = img[b:d, a:c]
+    return crop if crop.size else img[:64, :64]
 
 
 def _b64_thumb(bgr):
@@ -110,37 +135,53 @@ def _b64_thumb(bgr):
 
 def _thumb_from_b64(s):
     if not s: return None
-    return cv2.imdecode(np.frombuffer(base64.b64decode(s), np.uint8), cv2.IMREAD_COLOR)
+    try: return cv2.imdecode(np.frombuffer(base64.b64decode(s), np.uint8), cv2.IMREAD_COLOR)
+    except Exception: return None
 
 
 class FaceDB:
-    """人臉庫:每人一筆 {name, vec(512), thumb(base64 jpg)};只存向量與 64px 縮圖。"""
+    """人臉庫:每人一筆 {name, vec(512), thumb(base64 jpg)};只存向量與 64px 縮圖。
+    讀寫失敗不丟例外:save() 回傳 False 並把原因放在 last_error(給畫面顯示)。"""
     def __init__(self, path):
-        self.path = path; self.people = []
+        self.path = path; self.people = []; self.last_error = None
         if os.path.exists(path):
             try:
-                for p in json.load(open(path, encoding="utf-8")):
-                    self.people.append(dict(name=p["name"], vec=np.asarray(p["vec"], np.float32), thumb=_thumb_from_b64(p.get("thumb", ""))))
-            except (OSError, ValueError, KeyError) as e:
-                print(f"[FaceDB] 讀取失敗,改用空白庫:{e}")
+                data = json.load(open(path, encoding="utf-8"))
+                if not isinstance(data, list): raise ValueError("頂層不是陣列")
+                for p in data:
+                    vec = np.asarray(p["vec"], np.float32)
+                    if vec.shape != (EMB_DIM,): print(f"[FaceDB] 略過 {p.get('name')}:向量長度 {vec.shape} 不是 {EMB_DIM}"); continue
+                    self.people.append(dict(name=str(p["name"]), vec=vec, thumb=_thumb_from_b64(p.get("thumb", ""))))
+            except Exception as e:  # noqa: BLE001  任何壞檔都不能讓程式起不來
+                self.last_error = f"faces.json 讀取失敗:{type(e).__name__}"; print("[FaceDB]", self.last_error, e)
 
     def save(self):
-        json.dump([dict(name=p["name"], vec=[round(float(x), 5) for x in p["vec"]], thumb=_b64_thumb(p["thumb"]) if p["thumb"] is not None else "")
-                   for p in self.people], open(self.path, "w", encoding="utf-8"), ensure_ascii=False)
+        try:
+            tmp = self.path + ".tmp"
+            json.dump([dict(name=p["name"], vec=[round(float(x), 5) for x in p["vec"]], thumb=_b64_thumb(p["thumb"]) if p["thumb"] is not None else "")
+                       for p in self.people], open(tmp, "w", encoding="utf-8"), ensure_ascii=False)
+            os.replace(tmp, self.path); self.last_error = None; return True
+        except Exception as e:  # noqa: BLE001
+            self.last_error = f"faces.json 無法寫入:{type(e).__name__}(檔案被其他程式開著?)"; print("[FaceDB]", self.last_error, e); return False
 
     def add(self, name, vec, thumb=None):
+        """新增或覆蓋同名;回傳 (是否為覆蓋, 是否存檔成功)。"""
+        existed = any(p["name"] == name for p in self.people)
         self.people = [p for p in self.people if p["name"] != name]
-        self.people.append(dict(name=name, vec=np.asarray(vec, np.float32), thumb=thumb)); self.save()
+        self.people.append(dict(name=name, vec=np.asarray(vec, np.float32), thumb=thumb))
+        return existed, self.save()
 
     def remove_last(self):
         if self.people: p = self.people.pop(); self.save(); return p["name"]
         return None
 
-    def match(self, vec, thr=0.45):
-        """回傳 (name, sim);沒有超過門檻回傳 (None, best_sim)。"""
-        if not self.people: return None, 0.0
-        sims = [float(np.dot(p["vec"], vec)) for p in self.people]
-        i = int(np.argmax(sims))
-        return (self.people[i]["name"] if sims[i] >= thr else None), sims[i]
+    def match(self, vec, thr=0.45, margin=0.08):
+        """回傳 (name, sim);沒有超過門檻、或第一名與第二名太接近(分不清是誰)時回傳 (None, best_sim)。"""
+        if not self.people or vec is None: return None, 0.0
+        sims = np.array([float(np.dot(p["vec"], vec)) for p in self.people])
+        order = np.argsort(sims)[::-1]; best = sims[order[0]]
+        if best < thr: return None, float(best)
+        if len(order) > 1 and best - sims[order[1]] < margin and sims[order[1]] >= thr: return None, float(best)
+        return self.people[order[0]]["name"], float(best)
 
     def names(self): return [p["name"] for p in self.people]

@@ -17,3 +17,5 @@ if faces:
     for x, y in f["kps"].astype(int): cv2.circle(img, (int(x), int(y)), 3, (0, 0, 255), -1)
     cv2.imwrite("probe_out.jpg", img); cv2.imwrite("probe_align.jpg", emb.align(cv2.imread(sys.argv[1] if len(sys.argv) > 1 else r"..\FACE1\face.jpg"), f["kps"]))
     print("寫出 probe_out.jpg / probe_align.jpg")
+
+import hailo_vdevice; hailo_vdevice.exit_now()

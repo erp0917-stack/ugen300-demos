@@ -2,25 +2,26 @@
 """
 attention.py —— 教室儀表板的純邏輯層(不碰模型、不碰鏡頭,可離線測試)。
 
-輸入:每個人的 17 個 COCO 關鍵點 (x, y, conf) 與畫面上的手機框;
-輸出:每個人的狀態(舉手 / 低頭 / 滑手機 / 趴睡 / 轉頭 / 專心)與其所在九宮格。
+輸入:每個人的 17 個 COCO 關鍵點 (x, y, conf) 與「歸給此人的手機框」;
+輸出:每個人的狀態(舉手 / 低頭 / 手機 / 趴下 / 轉頭 / 專心)與其所在九宮格。
 
-規則(影像座標 y 向下):
-  舉手   手腕高於鼻子(或鼻子看不到時高於肩線)                      持續 RAISE_HOLD 秒
-  低頭   兩眼平均高度低於兩耳平均高度,或鼻子貼近肩線               持續 DOWN_HOLD 秒
-  趴睡   鼻子低於肩線,或肩膀看得到但整個頭看不到                   持續 SLEEP_HOLD 秒
-  轉頭   只看得到單邊眼睛(另一眼信心極低)                           持續 TURN_HOLD 秒
-  滑手機 手機框中心落在此人框內(下 2/3 區)                           持續 PHONE_HOLD 秒
-不專心的優先序:滑手機 > 趴睡 > 低頭 > 轉頭;舉手可與其他狀態並存。
+規則(影像座標 y 向下;門檻以肩寬為尺度,並針對「筆電鏡頭俯視、近距離」校正過):
+  舉手   手腕高於眼睛線且手肘高於肩線;手腕出框看不到時,手肘高於肩線也算   持續 RAISE_HOLD 秒
+  低頭   兩眼平均高度低於兩耳 0.12 肩寬,或鼻子距肩線不到 0.18 肩寬            持續 DOWN_HOLD 秒
+  趴下   鼻子低於肩線;或肩膀在畫面下半、肩線上方空間足夠卻整個頭看不到       持續 SLEEP_HOLD 秒
+  轉頭   一眼清楚、另一眼信心 < 0.3                                             持續 TURN_HOLD 秒
+  手機   手機框中心落在此人框內且在肩線以下(舉起來拍投影片不算)             持續 PHONE_HOLD 秒
+不專心的優先序:手機 > 趴下 > 低頭 > 轉頭;舉手可與其他狀態並存。
 """
 import time
 
 NOSE, L_EYE, R_EYE, L_EAR, R_EAR, L_SHO, R_SHO = 0, 1, 2, 3, 4, 5, 6
-L_WRI, R_WRI, L_HIP, R_HIP = 9, 10, 11, 12
+L_ELB, R_ELB, L_WRI, R_WRI, L_HIP, R_HIP = 7, 8, 9, 10, 11, 12
 KP_CONF = 0.3
-RAISE_HOLD, DOWN_HOLD, PHONE_HOLD, SLEEP_HOLD, TURN_HOLD = 0.5, 2.0, 3.0, 3.0, 5.0
+RAISE_HOLD, DOWN_HOLD, PHONE_HOLD, SLEEP_HOLD, TURN_HOLD = 1.0, 2.0, 3.0, 3.0, 2.5
+DOWN_EYE_EAR, DOWN_NOSE_SHO, TURN_FAR_EYE = 0.12, 0.18, 0.30
 RULES = ("head_down", "phone", "sleeping", "turned")   # 可由使用者開關的四種不專心
-RULE_NAMES = {"head_down": "低頭", "phone": "滑手機", "sleeping": "趴睡", "turned": "轉頭"}
+RULE_NAMES = {"head_down": "低頭", "phone": "手機", "sleeping": "趴下", "turned": "轉頭"}
 PRIORITY = ("phone", "sleeping", "head_down", "turned")
 
 
@@ -28,13 +29,16 @@ def _ok(kps, i, thr=KP_CONF):
     return kps[i][2] >= thr
 
 
-def bbox_from_kps(kps, pad=0.25):
-    """由可信關鍵點推出人框(含邊距);沒有可信點回傳 None。"""
-    pts = [(x, y) for x, y, c in kps if c >= KP_CONF]
+def bbox_from_kps(kps, pad=0.25, idx=None):
+    """由可信關鍵點推出框(含邊距);idx 指定只用哪些點(例如頭肩 0–6 做追蹤框)。沒有可信點回傳 None。"""
+    pts = [(x, y) for j, (x, y, c) in enumerate(kps) if c >= KP_CONF and (idx is None or j in idx)]
     if len(pts) < 2: return None
     xs, ys = [p[0] for p in pts], [p[1] for p in pts]
     w, h = max(xs) - min(xs), max(ys) - min(ys); w, h = max(w, 20), max(h, 20)
     return (int(min(xs) - w * pad), int(min(ys) - h * pad * 1.6), int(max(xs) + w * pad), int(max(ys) + h * pad))
+
+
+HEAD_SHOULDER = (0, 1, 2, 3, 4, 5, 6)
 
 
 def shoulder_line(kps):
@@ -43,42 +47,55 @@ def shoulder_line(kps):
     return None, None
 
 
-def instant_flags(kps):
-    """單幀的瞬時判斷,回傳 dict(raise, head_down, sleeping, turned) 布林。"""
+def instant_flags(kps, frame_h=None):
+    """單幀的瞬時判斷,回傳 dict(raise_, head_down, sleeping, turned) 布林。frame_h 用於趴下的「肩膀在畫面下半」條件。"""
     f = dict(raise_=False, head_down=False, sleeping=False, turned=False)
     sho_y, sho_w = shoulder_line(kps)
-    # 舉手
-    ref_y = kps[NOSE][1] if _ok(kps, NOSE) else sho_y
-    if ref_y is not None:
-        for w in (L_WRI, R_WRI):
-            if _ok(kps, w) and kps[w][1] < ref_y: f["raise_"] = True
-    # 低頭 / 趴睡
+    eyes_y = [kps[i][1] for i in (L_EYE, R_EYE) if _ok(kps, i)]
+    eye_line = sum(eyes_y) / len(eyes_y) if eyes_y else (kps[NOSE][1] if _ok(kps, NOSE) else None)
+    # 舉手:手腕高於眼睛線 + 手肘高於肩線;手腕出框時手肘高於肩線也算
+    if sho_y is not None:
+        for wri, elb in ((L_WRI, L_ELB), (R_WRI, R_ELB)):
+            elbow_up = _ok(kps, elb) and kps[elb][1] < sho_y
+            if _ok(kps, wri):
+                if elbow_up and eye_line is not None and kps[wri][1] < eye_line: f["raise_"] = True
+            elif elbow_up:
+                f["raise_"] = True
+    # 低頭 / 趴下
     if sho_y is not None and sho_w and sho_w > 0:
-        head_seen = _ok(kps, NOSE) or _ok(kps, L_EYE) or _ok(kps, R_EYE)
+        head_seen = _ok(kps, NOSE) or bool(eyes_y)
         if not head_seen:
-            f["sleeping"] = True
+            lower_half = frame_h is None or sho_y > frame_h * 0.5
+            if lower_half: f["sleeping"] = True     # 頭出框(人站太近)不算趴下
         else:
             if _ok(kps, NOSE):
                 if kps[NOSE][1] > sho_y: f["sleeping"] = True
-                elif kps[NOSE][1] > sho_y - 0.30 * sho_w: f["head_down"] = True
-            eyes = [kps[i][1] for i in (L_EYE, R_EYE) if _ok(kps, i)]
+                elif kps[NOSE][1] > sho_y - DOWN_NOSE_SHO * sho_w: f["head_down"] = True
             ears = [kps[i][1] for i in (L_EAR, R_EAR) if _ok(kps, i)]
-            if eyes and ears and sum(eyes) / len(eyes) > sum(ears) / len(ears) + 0.06 * sho_w:
+            if eyes_y and ears and sum(eyes_y) / len(eyes_y) > sum(ears) / len(ears) + DOWN_EYE_EAR * sho_w:
                 f["head_down"] = True
     # 轉頭:一眼清楚、另一眼幾乎看不到
     le, re = kps[L_EYE][2], kps[R_EYE][2]
-    if (le >= 0.5 and re < 0.15) or (re >= 0.5 and le < 0.15): f["turned"] = True
+    if (le >= 0.5 and re < TURN_FAR_EYE) or (re >= 0.5 and le < TURN_FAR_EYE): f["turned"] = True
     return f
 
 
-def phone_in_box(phone_boxes, box):
-    """任何手機中心落在人框內(且在人框上緣往下 1/6 以後,排除舉高拍照的情況以外都算)。"""
-    if box is None: return False
-    x1, y1, x2, y2 = box; h = y2 - y1
-    for px1, py1, px2, py2 in phone_boxes:
-        cx, cy = (px1 + px2) / 2, (py1 + py2) / 2
-        if x1 <= cx <= x2 and y1 + h / 6 <= cy <= y2: return True
-    return False
+def assign_phones(phone_boxes, persons):
+    """把每支手機歸給「框包含手機中心、手機在肩線以下、中心最近」的那一個人。
+    persons: [(pid, box, sho_y)];回傳 {pid: [phone_box, ...]}。"""
+    out = {}
+    for pb in phone_boxes:
+        cx, cy = (pb[0] + pb[2]) / 2, (pb[1] + pb[3]) / 2
+        best, best_d = None, None
+        for pid, box, sho_y in persons:
+            if box is None: continue
+            x1, y1, x2, y2 = box
+            if not (x1 <= cx <= x2 and y1 <= cy <= y2): continue
+            if sho_y is not None and cy < sho_y: continue        # 舉到肩線以上(拍投影片)不算
+            d = ((x1 + x2) / 2 - cx) ** 2 + ((y1 + y2) / 2 - cy) ** 2
+            if best is None or d < best_d: best, best_d = pid, d
+        if best is not None: out.setdefault(best, []).append(pb)
+    return out
 
 
 def grid_cell(box, W, H):
@@ -92,22 +109,26 @@ GRID_ROW = ("後", "中", "前"); GRID_COL = ("左", "中", "右")
 
 class PersonState:
     """每個追蹤 ID 一份:記各種狀態的起始時間,超過持續門檻才成立。"""
-    __slots__ = ("since", "state", "raised", "box", "cell")
+    __slots__ = ("since", "state", "raised", "box", "sho_y")
     def __init__(self):
-        self.since = {}; self.state = "ok"; self.raised = False; self.box = None; self.cell = (1, 1)
+        self.since = {}; self.state = "ok"; self.raised = False; self.box = None; self.sho_y = None
 
     def _hold(self, key, active, hold, now):
         if not active: self.since.pop(key, None); return False
         self.since.setdefault(key, now)
         return now - self.since[key] >= hold
 
-    def update(self, kps, phone_boxes, enabled, now=None, box=None):
+    def shift(self, dt):
+        """畫面凍結了 dt 秒:把所有計時起點往後推,凍結期間不算持續。"""
+        for k in self.since: self.since[k] += dt
+
+    def update(self, kps, my_phones, enabled, now=None, box=None, frame_h=None):
         now = time.time() if now is None else now
-        self.box = box or bbox_from_kps(kps)
-        f = instant_flags(kps)
+        self.box = box or bbox_from_kps(kps); self.sho_y = shoulder_line(kps)[0]
+        f = instant_flags(kps, frame_h)
         self.raised = self._hold("raise", f["raise_"], RAISE_HOLD, now)
         held = dict(
-            phone=self._hold("phone", phone_in_box(phone_boxes, self.box), PHONE_HOLD, now),
+            phone=self._hold("phone", bool(my_phones), PHONE_HOLD, now),
             sleeping=self._hold("sleeping", f["sleeping"], SLEEP_HOLD, now),
             head_down=self._hold("head_down", f["head_down"] and not f["sleeping"], DOWN_HOLD, now),
             turned=self._hold("turned", f["turned"], TURN_HOLD, now),
