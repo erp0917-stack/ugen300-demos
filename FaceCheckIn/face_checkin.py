@@ -24,7 +24,7 @@ import cv2
 import numpy as np
 
 from face_engine import FaceDetector, FaceEmbedder, FaceDB, square_crop, iou
-from ui_text import draw_text, badge
+from ui_text import draw_text, badge, text_width
 from camera import open_camera
 
 WIN = "UGen300 Face Check-In"
@@ -32,9 +32,10 @@ W, H, PANEL = 1280, 720, 440
 HERE = os.path.dirname(os.path.abspath(__file__))
 DB_PATH, LOG_PATH, FACES_DIR = os.path.join(HERE, "faces.json"), os.path.join(HERE, "checkin.csv"), os.path.join(HERE, "faces")
 C_BG, C_PANEL, C_TXT, C_DIM = (24, 24, 28), (36, 36, 42), (240, 240, 240), (150, 150, 150)
-C_OK, C_ACC, C_NO, C_LINE, C_GRAY = (80, 220, 120), (255, 170, 40), (60, 140, 255), (70, 70, 80), (110, 110, 118)
+C_OK, C_ACC, C_NO, C_LINE, C_GRAY = (80, 220, 120), (255, 170, 40), (60, 140, 255), (70, 70, 80), (190, 190, 200)
 ENROLL_SAMPLES, ENROLL_EVERY, ENROLL_TIMEOUT = 5, 3, 6.0     # 5 個樣本、每 3 幀取一個、最多等 6 秒
-CONFIRM_SEC, RESET_GRACE, BANNER_SEC, LIST_MAX = 0.6, 3.0, 2.5, 6
+CONFIRM_SEC, RESET_GRACE, BANNER_SEC, LIST_MAX = 0.6, 3.0, 2.5, 5
+EMBED_MAX_FACES, EMBED_MIN_W = 5, 48          # 每幀最多算 5 張、太小的臉不算(觀眾席小臉不拖慢速度)
 ERR_RETRY, ERR_CLEAR_SEC = 5, 3.0
 
 
@@ -78,8 +79,10 @@ def preload_faces(det, emb, db):
         if img is None: skipped.append(name); continue
         if max(img.shape[:2]) > 1600:
             s = 1600 / max(img.shape[:2]); img = cv2.resize(img, None, fx=s, fy=s)
-        faces = det.detect(img)
-        v = emb.embed(img, faces[0]["kps"]) if faces else None
+        try:
+            faces = det.detect(img); v = emb.embed(img, faces[0]["kps"]) if faces else None
+        except Exception as e:  # noqa: BLE001  一張壞照片不能讓程式起不來
+            print(f"[預先建檔] {name}:推論失敗 {type(e).__name__},略過"); skipped.append(name); continue
         if v is None: skipped.append(name); print(f"[預先建檔] {name}:照片裡找不到臉,略過"); continue
         db.add(name, v, square_crop(img, faces[0]["box"])); added.append(name)
     if added: print("[預先建檔]", "、".join(added))
@@ -94,7 +97,7 @@ def log_checkin(name):
             w = csv.writer(f); new and w.writerow(["time", "name"]); w.writerow([datetime.now().strftime("%Y-%m-%d %H:%M:%S"), name])
         return None
     except OSError as e:
-        return f"checkin.csv 無法寫入(被 Excel 開著?):{type(e).__name__}"
+        return "checkin.csv 被其他程式開著,這筆未記錄"
 
 
 def fit(frame, vw):
@@ -108,12 +111,11 @@ def compose(frame, faces, results, db, checked, ui, fatal=None):
     if ui["phase"] == "live" and not fatal:
         for f, (name, sim) in zip(faces, results):
             x1, y1, x2, y2 = [int(v * s) for v in f["box"]]
-            if name:
-                col = C_OK; cv2.rectangle(fr, (x1, y1), (x2, y2), col, 3)
-                draw_text(fr, name + ("  已報到" if name in checked else ""), (x1, max(0, y1 - 36)), 30, col)
-            else:
-                cv2.rectangle(fr, (x1, y1), (x2, y2), C_GRAY, 1)
-                draw_text(fr, "未建檔", (x1, max(0, y1 - 26)), 20, C_GRAY)
+            label, col, th, size = (name[:12] + ("  已報到" if name in checked else ""), C_OK, 3, 30) if name else ("未建檔", C_GRAY, 2, 24)
+            cv2.rectangle(fr, (x1, y1), (x2, y2), col, th)
+            ty = max(0, y1 - size - 10); tw = text_width(label, size)
+            cv2.rectangle(fr, (x1, ty), (x1 + tw + 12, ty + size + 8), (20, 20, 24), -1)   # 深色底板,相鄰兩人的字不互蓋
+            draw_text(fr, label, (x1 + 6, ty + 2), size, col, shadow=False)
             if ui["show_sim"]: draw_text(fr, f"{sim:.2f}", (x2 - 4, y2 + 2), 16, C_DIM, anchor="ra")
     canvas[y0:y0 + fr.shape[0], x0:x0 + fr.shape[1]] = fr
     cx, cy = x0 + fr.shape[1] // 2, y0 + fr.shape[0] // 2
@@ -131,31 +133,34 @@ def compose(frame, faces, results, db, checked, ui, fatal=None):
     elif ui["phase"] == "naming":
         cv2.rectangle(canvas, (x0, cy - 60), (x0 + fr.shape[1], cy + 60), (30, 30, 36), -1)
         draw_text(canvas, "請在跳出的對話框輸入名字", (cx, cy), 44, C_ACC, anchor="mm")
-    if ui.get("banner") and time.time() < ui["banner_until"]:
+    if ui["phase"] == "live" and ui.get("banner") and time.time() < ui["banner_until"]:
         cv2.rectangle(canvas, (x0, cy - 70), (x0 + fr.shape[1], cy + 70), (30, 70, 40), -1)
-        draw_text(canvas, ui["banner"], (cx, cy), 64, C_OK, anchor="mm")
+        draw_text(canvas, ui["banner"], (cx, cy), 64 if len(ui["banner"]) <= 10 else 44, C_OK, anchor="mm")
     if ui.get("warn"):
-        draw_text(canvas, ui["warn"], (x0 + 16, y0 + 12), 22, C_NO)
+        draw_text(canvas, ui["warn"], (x0 + 16, y0 + fr.shape[0] - 40), 22, C_NO)
     # 右側面板
     px = vw; cv2.rectangle(canvas, (px, 0), (W, H), C_PANEL, -1); badge(canvas)
     draw_text(canvas, "人臉報到", (px + 24, 50), 40, C_TXT)
-    draw_text(canvas, "只存 512 個數字,不存照片、不上傳", (px + 24, 100), 20, C_OK)
-    draw_text(canvas, "SCRFD + ArcFace · UGen200 亦可執行", (px + 24, 128), 16, C_DIM)
+    draw_text(canvas, "只存特徵向量與 64px 縮圖,不存照片、不上傳", (px + 24, 100), 18, C_OK)
+    draw_text(canvas, "SCRFD + ArcFace · UGen200 亦可執行", (px + 24, 128), 18, C_DIM)
     draw_text(canvas, f"{len(checked)}", (px + 24, 150), 96, C_OK if checked else C_TXT)
     draw_text(canvas, "人已報到", (px + 24 + len(str(len(checked))) * 54 + 10, 208), 28, C_DIM)
     draw_text(canvas, f"已建檔 {len(db.people)} 人", (W - 24, 216), 18, C_DIM, anchor="ra")
     cv2.line(canvas, (px + 24, 266), (W - 24, 266), C_LINE, 1)
     yy = 280
-    for name, t in list(checked.items())[-LIST_MAX:]:
+    for name, t in list(checked.items())[::-1][:LIST_MAX]:      # 最新的在最上面
         p = next((p for p in db.people if p["name"] == name), None)
         if p and p["thumb"] is not None:
             canvas[yy:yy + 44, px + 24:px + 68] = cv2.resize(p["thumb"], (44, 44))
-        draw_text(canvas, name[:8], (px + 82, yy + 2), 28, C_TXT)
+        draw_text(canvas, name[:12], (px + 82, yy + 2), 28 if len(name) <= 8 else 22, C_TXT)
         draw_text(canvas, t, (W - 24, yy + 12), 18, C_DIM, anchor="ra")
         yy += 54
     if len(checked) > LIST_MAX: draw_text(canvas, f"…另有 {len(checked) - LIST_MAX} 人", (px + 82, yy), 16, C_DIM)
     if not checked and not fatal: draw_text(canvas, "站到鏡頭前即可報到", (px + PANEL // 2, 400), 28, C_DIM, anchor="mm")
-    if ui.get("msg"): draw_text(canvas, ui["msg"][:22], (px + 24, H - 132), 24, C_OK if not ui.get("msg_bad") else C_NO)
+    if ui.get("msg"):
+        m = ui["msg"]; col = C_OK if not ui.get("msg_bad") else C_NO
+        draw_text(canvas, m[:20], (px + 24, H - 150), 20, col)
+        if len(m) > 20: draw_text(canvas, m[20:40], (px + 24, H - 124), 20, col)
     draw_text(canvas, f"偵測 {ui['ms']:.0f} ms", (px + 24, H - 92), 16, C_DIM)
     draw_text(canvas, "e 建檔  d 刪最後一筆  r 清單重來  q 離開", (px + 24, H - 62), 18, C_DIM)
     return canvas
@@ -207,9 +212,11 @@ def main():
             frame = cv2.flip(frame, 1) if ok else np.zeros((720, 1280, 3), np.uint8)
             faces, results = [], []
             now = time.time()
+            if not ok and not fatal: ui["warn"] = "鏡頭沒有畫面(USB 鬆了?)"; err_at = now
             if det and not fatal and ok:
                 try:
                     t = time.time(); faces = det.detect(frame); ui["ms"] = 0.8 * ui["ms"] + 0.2 * (time.time() - t) * 1000
+                    faces = [f for f in faces if f["box"][2] - f["box"][0] >= EMBED_MIN_W][:EMBED_MAX_FACES]
                     results = [db.match(emb.embed(frame, f["kps"]), args.thr) for f in faces]
                     n_err = 0
                 except Exception as e:  # noqa: BLE001  一次抖動不該讓整支 demo 停擺:顯示警告、繼續嘗試
@@ -218,7 +225,7 @@ def main():
             if ui["warn"] and now - err_at > ERR_CLEAR_SEC: ui["warn"] = ""
             # 報到:同一名字連續看到 CONFIRM_SEC 秒才算;按 r 之後 RESET_GRACE 秒內不報到
             seen = set()
-            for name, sim in results:
+            for name, sim in (results if ui["phase"] == "live" else []):
                 if not name: continue
                 seen.add(name); first_seen.setdefault(name, now)
                 if now - first_seen[name] >= CONFIRM_SEC and name not in checked and now >= reset_until:
@@ -250,7 +257,7 @@ def main():
                     v = np.mean(samples, 0); v /= np.linalg.norm(v) + 1e-6
                     ui["phase"] = "naming"
                     cv2.imshow(WIN, compose(frame, faces, results, db, checked, ui, fatal)); cv2.waitKey(1)
-                    name = ask_name(); disable_ime(WIN)
+                    name = ask_name(); disable_ime(WIN); now = time.time()   # 對話框可能開很久,時間要重抓
                     if name:
                         existed, saved = db.add(name, v, sample_thumb); checked.pop(name, None); first_seen.pop(name, None)
                         ui.update(msg=(f"已更新建檔:{name}" if existed else f"已建檔:{name}") if saved else db.last_error, msg_bad=not saved); beep(1500, 100)
@@ -266,9 +273,9 @@ def main():
             k = cv2.waitKey(1) & 0xFF
             key = chr(k).lower() if 32 <= k < 127 else ("esc" if k == 27 else "")
             if key in ("q", "esc"): break
-            if not args.fullscreen and cv2.getWindowProperty(WIN, cv2.WND_PROP_VISIBLE) < 1: break   # 按了視窗的 X
+            if cv2.getWindowProperty(WIN, cv2.WND_PROP_VISIBLE) < 1: break   # 按了視窗的 X / Alt+F4
             if fatal: continue
-            if key == "e" and ui["phase"] == "live": ui["phase"] = "countdown"; t0 = now
+            if key == "e" and ui["phase"] == "live": ui.update(phase="countdown", banner=""); t0 = now
             if key == "d":
                 n = db.remove_last(); checked.pop(n, None); first_seen.pop(n, None)
                 ui.update(msg=(f"已刪除建檔:{n}" if n else "沒有建檔資料"), msg_bad=not n); msg_t = now + 4

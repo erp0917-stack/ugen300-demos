@@ -15,7 +15,7 @@ _INTERNAL_HINTS = ["integrated", "built-in", "hd camera", "hd webcam", "internal
                    "ir camera", "windows hello", "內建", "内建", "asus fhd", "asus ir"]
 # 名稱含這些的一定是外接 USB 鏡頭(優先於內建關鍵字;例如 "Logitech HD Webcam C270" 含 hd webcam 但其實是外接)
 _EXTERNAL_HINTS = ["logitech", "logi ", "brio", "c920", "c922", "c930", "c270", "c310", "streamcam", "razer", "elgato",
-                   "insta360", "obsbot", "anker", "aukey", "usb", "外接"]
+                   "insta360", "obsbot", "anker", "aukey", "外接"]
 _VIRTUAL_HINTS = ["obs", "virtual", "droidcam", "manycam", "snap camera"]
 
 

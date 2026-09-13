@@ -23,7 +23,7 @@ import attention as A
 from hailo_detect import ObjectDetector
 from hailo_pose import PoseEstimator
 from tracker import CentroidTracker
-from ui_text import draw_text, badge
+from ui_text import draw_text, badge, text_width
 from camera import open_camera
 
 WIN = "UGen300 Classroom"
@@ -37,20 +37,23 @@ PHONE_CONF, ERR_FATAL, ERR_CLEAR_SEC, ATT_WINDOW, LABEL_MAX_PEOPLE = 0.5, 5, 3.0
 
 
 def draw_people(fr, s, tracks_kps, states, phones):
-    many = len(tracks_kps) > LABEL_MAX_PEOPLE      # 人多時只畫顏色框,不畫字(字會互相蓋住)
+    many = len(tracks_kps) > LABEL_MAX_PEOPLE      # 人多時:專心的人只畫細框,有狀態的才畫骨架與字(避免一團線)
     for tid, kps in tracks_kps.items():
-        st = states.get(tid); col = STATE_COLOR.get(st.state if st else "ok", C_OK)
-        if st and st.raised and st.state == "ok": col = C_RAISE
-        for a, b in SKELETON:
-            if kps[a][2] > 0.3 and kps[b][2] > 0.3:
-                cv2.line(fr, (int(kps[a][0] * s), int(kps[a][1] * s)), (int(kps[b][0] * s), int(kps[b][1] * s)), col, 2)
+        st = states.get(tid); state = st.state if st else "ok"; col = STATE_COLOR.get(state, C_OK)
+        flagged = st is not None and (st.raised or state != "ok")
+        if flagged: col = C_RAISE if (st.raised and state == "ok") else col
+        if not many or flagged:
+            for a, b in SKELETON:
+                if kps[a][2] > 0.3 and kps[b][2] > 0.3:
+                    cv2.line(fr, (int(kps[a][0] * s), int(kps[a][1] * s)), (int(kps[b][0] * s), int(kps[b][1] * s)), col, 2)
         if st and st.box:
             x1, y1, x2, y2 = [int(v * s) for v in st.box]
-            cv2.rectangle(fr, (x1, y1), (x2, y2), col, 2)
-            tag = ("舉手 " if st.raised else "") + A.RULE_NAMES.get(st.state, "")
-            if tag and not many:
-                cv2.rectangle(fr, (x1, max(0, y1 - 34)), (x1 + 16 * len(tag.strip()) + 12, max(0, y1 - 34) + 32), (20, 20, 24), -1)
-                draw_text(fr, tag.strip(), (x1 + 6, max(0, y1 - 32)), 26, col, shadow=False)
+            cv2.rectangle(fr, (x1, y1), (x2, y2), col, 2 if (not many or flagged) else 1)
+            tag = (("舉手 " if st.raised else "") + A.RULE_NAMES.get(state, "")).strip()
+            if tag and (not many or flagged):
+                ty = max(0, y1 - 36); tw = text_width(tag, 26)
+                cv2.rectangle(fr, (x1, ty), (x1 + tw + 12, ty + 34), (20, 20, 24), -1)
+                draw_text(fr, tag, (x1 + 6, ty + 2), 26, col, shadow=False)
     for x1, y1, x2, y2 in phones:
         cv2.rectangle(fr, (int(x1 * s), int(y1 * s)), (int(x2 * s), int(y2 * s)), C_PHONE, 2)
 
@@ -75,8 +78,10 @@ def compose(frame, tracks_kps, states, phones, count, summary, enabled, history,
         cv2.rectangle(canvas, (x0, y0), (x0 + fr.shape[1], y0 + fr.shape[0]), (20, 20, 90), -1)
         draw_text(canvas, "無法啟動", (cx, cy - 60), 60, C_PHONE, anchor="mm")
         for i, line in enumerate(fatal.split("\n")[:4]): draw_text(canvas, line[:40], (cx, cy + 10 + i * 34), 24, C_TXT, anchor="mm")
-    if ui.get("warn"): draw_text(canvas, ui["warn"], (x0 + 16, y0 + 12), 22, C_PHONE)
-    if ui.get("frozen"): draw_text(canvas, "已凍結 · 空白鍵恢復", (x0 + 16, y0 + 44), 28, C_ACC)
+    if ui.get("warn"): draw_text(canvas, ui["warn"], (x0 + 16, y0 + fr.shape[0] - 40), 22, C_PHONE)
+    if ui.get("frozen"):
+        cv2.rectangle(canvas, (cx - 170, y0 + fr.shape[0] - 52), (cx + 170, y0 + fr.shape[0] - 8), (20, 20, 24), -1)
+        draw_text(canvas, "已凍結 · 空白鍵恢復", (cx, y0 + fr.shape[0] - 30), 28, C_ACC, anchor="mm", shadow=False)
     draw_text(canvas, "鏡像" if ui.get("flip") else "鏡頭視角", (x0 + fr.shape[1] - 12, y0 + fr.shape[0] - 30), 17, C_DIM, anchor="ra")
     # 右側面板
     px = vw; cv2.rectangle(canvas, (px, 0), (W, H), C_PANEL, -1); badge(canvas)
@@ -97,7 +102,7 @@ def compose(frame, tracks_kps, states, phones, count, summary, enabled, history,
     yy = 296
     for i, k in enumerate(A.RULES, 1):
         on = enabled.get(k, True); col = STATE_COLOR[k] if on else (80, 80, 88)
-        draw_text(canvas, f"{i} {A.RULE_NAMES[k]}", (bx, yy), 22, col)
+        draw_text(canvas, f"[{i}]", (bx, yy + 4), 15, (110, 110, 118)); draw_text(canvas, A.RULE_NAMES[k], (bx + 34, yy), 22, col)
         draw_text(canvas, f"{summary['by'][k]}" if on else "已關閉", (W - 24, yy + 2), 20 if on else 16, col, anchor="ra")
         yy += 34
     # 專注度(最近 ATT_WINDOW 秒中位數)+ 走勢
@@ -112,7 +117,8 @@ def compose(frame, tracks_kps, states, phones, count, summary, enabled, history,
         pts = [(int(gx0 + gw * (1 - (t_now - t) / 60.0)), int(gy0 + gh - 2 - (gh - 4) * v / 100)) for t, v in history if t_now - t <= 60]
         for i in range(1, len(pts)): cv2.line(canvas, pts[i - 1], pts[i], C_OK, 2)
     draw_text(canvas, "最近 60 秒專注度", (gx0, gy0 + gh + 4), 16, C_DIM)
-    draw_text(canvas, f"推論 {ui.get('ms', 0):.0f} ms", (px + 24, H - 84), 16, C_DIM)
+    draw_text(canvas, f"姿態 {ui.get('ms_pose', 0):.0f} ms · 偵測 {ui.get('ms_det', 0):.0f} ms", (px + 24, H - 84), 16, C_DIM)
+    draw_text(canvas, "UGen200 亦可執行", (W - 24, H - 84), 16, C_DIM, anchor="ra")
     draw_text(canvas, "1-4 開關  空白鍵 凍結  f 鏡像  r 重設  q 離開", (px + 24, H - 56), 17, C_DIM)
     return canvas
 
@@ -149,7 +155,7 @@ def main():
     enabled = {k: True for k in A.RULES}; tracker = CentroidTracker(max_missed=15, iou_thresh=0.2, dist_thresh=160)
     states = {}; people = []; dets = []; phones = []; count_hist = deque(maxlen=5); history = deque(); att_hist = deque()
     frozen = None; freeze_t = 0.0; frames = 0; last_summary = A.summarize({}, W, H); count = 0; tracks_kps = {}
-    n_err = 0; err_at = 0.0; ui = dict(warn="", frozen=False, flip=args.flip, ms=0.0, att=None)
+    n_err = 0; err_at = 0.0; ui = dict(warn="", frozen=False, flip=args.flip, ms_pose=0.0, ms_det=0.0, att=None)
     try:
         while True:
             if still is not None: ok, frame = True, still.copy()
@@ -160,9 +166,9 @@ def main():
             elif pose and det and not fatal:
                 try:
                     t = time.time()
-                    if frames % 2 == 0: people = pose.infer_multi(frame) or []
-                    else: dets = det.infer(frame)
-                    ui["ms"] = 0.8 * ui["ms"] + 0.2 * (time.time() - t) * 1000; n_err = 0
+                    if frames % 2 == 0: people = pose.infer_multi(frame) or []; ui["ms_pose"] = 0.8 * ui["ms_pose"] + 0.2 * (time.time() - t) * 1000
+                    else: dets = det.infer(frame); ui["ms_det"] = 0.8 * ui["ms_det"] + 0.2 * (time.time() - t) * 1000
+                    n_err = 0
                 except Exception as e:  # noqa: BLE001  單次抖動不該讓 demo 永久停擺
                     n_err += 1; err_at = now; ui["warn"] = f"推論失敗({n_err}):{type(e).__name__}"; print("[推論]", repr(e))
                     if n_err >= ERR_FATAL: fatal = f"UGen300 連續推論失敗 {n_err} 次\n請重新插拔後重開程式"
@@ -186,8 +192,9 @@ def main():
                     if tid not in alive: del states[tid]
                 tracks_kps = {tid: kps for tid, (fb, kps) in tracks_kps.items()}
                 last_summary = A.summarize({t: s for t, s in states.items() if t in tracks_kps}, frame.shape[1], frame.shape[0])
-                if count > 0:
-                    att_now = 100 * max(0, count - min(last_summary["inattentive"], count)) / count
+                n_judged = len(tracks_kps)          # 專注度只看「有骨架、真的被判斷過」的人,不拿 YOLO 人數當分母(後排沒骨架不算專心)
+                if n_judged > 0:
+                    att_now = 100 * max(0, n_judged - min(last_summary["inattentive"], n_judged)) / n_judged
                     att_hist.append((now, att_now))
                     while att_hist and now - att_hist[0][0] > ATT_WINDOW: att_hist.popleft()
                     ui["att"] = int(round(float(np.median([v for _, v in att_hist])))); history.append((now, ui["att"]))

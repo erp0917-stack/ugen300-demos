@@ -37,7 +37,7 @@ class HailoModel:
         if rgb.shape[:2] != (self.input_h, self.input_w):
             raise ValueError(f"輸入大小 {rgb.shape[:2]} 不符模型 {(self.input_h, self.input_w)}")
         self._bindings.input().set_buffer(np.ascontiguousarray(rgb, dtype=np.uint8))
-        try: self.configured.run([self._bindings], 10000)
+        try: self.configured.run([self._bindings], 2000)
         except TypeError: self.configured.run([self._bindings])
         out = {}
         for n in self.output_names:

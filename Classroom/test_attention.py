@@ -47,6 +47,13 @@ def test_sleeping_nose_below_shoulder():
 def test_head_missing_only_counts_when_shoulders_low_in_frame():
     assert not A.instant_flags(person(hide=(0, 1, 2)), FH)["sleeping"]              # 肩膀在畫面上半:頭出框,不是趴下
     assert A.instant_flags(person(hide=(0, 1, 2), dy=400), FH)["sleeping"]          # 肩膀在下半才算
+    near = person(sho=((0, 400), (600, 400)), hide=(0, 1, 2))                      # 肩寬 600、肩線 y=400:上方放不下頭 → 出框
+    assert not A.instant_flags(near, FH)["sleeping"]
+
+
+def test_far_small_person_skips_face_rules():
+    small = person(nose=(100, 100), eyes=((97, 97), (103, 97)), ears=((95, 100), (105, 100)), sho=((85, 120), (115, 120)), hide=(2,))
+    f = A.instant_flags(small, FH); assert not f["turned"] and not f["head_down"]
 
 
 def test_turned_one_eye():

@@ -19,6 +19,7 @@ import numpy as np
 
 from hailo_model import HailoModel
 
+_HERE = os.path.dirname(os.path.abspath(__file__))
 _STRIDES = (8, 16, 32)
 _NUM_ANCHORS = 2
 EMB_DIM = 512
@@ -50,7 +51,7 @@ def iou(a, b):
 
 class FaceDetector:
     def __init__(self, hef="scrfd_10g.hef", conf=0.5, nms=0.4):
-        self.m = HailoModel(hef); self.conf = conf; self.nms = nms
+        self.m = HailoModel(hef if os.path.isabs(hef) else os.path.join(_HERE, hef)); self.conf = conf; self.nms = nms
         # 依空間大小與通道數把輸出層對到 (stride, 種類)
         self.layers = {}
         for n, shp in self.m.output_shapes.items():
@@ -102,7 +103,7 @@ class FaceDetector:
 
 class FaceEmbedder:
     def __init__(self, hef="arcface_mobilefacenet.hef"):
-        self.m = HailoModel(hef)
+        self.m = HailoModel(hef if os.path.isabs(hef) else os.path.join(_HERE, hef))
 
     @staticmethod
     def align(bgr, kps):

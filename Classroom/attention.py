@@ -20,6 +20,8 @@ L_ELB, R_ELB, L_WRI, R_WRI, L_HIP, R_HIP = 7, 8, 9, 10, 11, 12
 KP_CONF = 0.3
 RAISE_HOLD, DOWN_HOLD, PHONE_HOLD, SLEEP_HOLD, TURN_HOLD = 1.0, 2.0, 3.0, 3.0, 2.5
 DOWN_EYE_EAR, DOWN_NOSE_SHO, TURN_FAR_EYE = 0.12, 0.18, 0.30
+MIN_SHO_W_FACE = 60      # 肩寬小於這個像素的人(太遠)不判轉頭/低頭:眼睛信心本來就低,會誤判
+HEAD_ROOM = 0.8          # 趴下的「頭看不到」條件:肩線上方至少要有 0.8 肩寬的空間,否則只是頭出框
 RULES = ("head_down", "phone", "sleeping", "turned")   # 可由使用者開關的四種不專心
 RULE_NAMES = {"head_down": "低頭", "phone": "手機", "sleeping": "趴下", "turned": "轉頭"}
 PRIORITY = ("phone", "sleeping", "head_down", "turned")
@@ -66,8 +68,9 @@ def instant_flags(kps, frame_h=None):
         head_seen = _ok(kps, NOSE) or bool(eyes_y)
         if not head_seen:
             lower_half = frame_h is None or sho_y > frame_h * 0.5
-            if lower_half: f["sleeping"] = True     # 頭出框(人站太近)不算趴下
-        else:
+            head_room = sho_y >= HEAD_ROOM * sho_w          # 肩線上方放得下一顆頭卻沒看到,才算趴下
+            if lower_half and head_room: f["sleeping"] = True
+        elif sho_w >= MIN_SHO_W_FACE:
             if _ok(kps, NOSE):
                 if kps[NOSE][1] > sho_y: f["sleeping"] = True
                 elif kps[NOSE][1] > sho_y - DOWN_NOSE_SHO * sho_w: f["head_down"] = True
@@ -76,7 +79,8 @@ def instant_flags(kps, frame_h=None):
                 f["head_down"] = True
     # 轉頭:一眼清楚、另一眼幾乎看不到
     le, re = kps[L_EYE][2], kps[R_EYE][2]
-    if (le >= 0.5 and re < TURN_FAR_EYE) or (re >= 0.5 and le < TURN_FAR_EYE): f["turned"] = True
+    if sho_w is not None and sho_w >= MIN_SHO_W_FACE and ((le >= 0.5 and re < TURN_FAR_EYE) or (re >= 0.5 and le < TURN_FAR_EYE)):
+        f["turned"] = True
     return f
 
 
