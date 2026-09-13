@@ -135,7 +135,8 @@ class ObjectDetector:
         座標已正規化到 0~1。這裡轉成 (x1, y1, x2, y2) 再交給
         _scale_box() 換算回原圖像素。
 
-        本函式對三種常見輸出形狀都能解析（實機跑起來框不出來時看下方備註）：
+        本函式對四種常見輸出形狀都能解析（實機跑起來框不出來時看下方備註）：
+          D. 攤平的 float32 NMS 緩衝：每類 [count, count×5] 緊排（HailoRT 未將輸出標為 NMS 時才會遇到）
           A. 物件陣列 / list：output[0] 是「每類一組」的清單（最常見）
           B. ndim==4 的 ndarray：(batch, num_classes, max_dets, 5)
           C. ndim==3 的 ndarray：(num_classes, max_dets, 5)

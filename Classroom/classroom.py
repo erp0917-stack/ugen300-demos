@@ -81,7 +81,7 @@ def compose(frame, tracks_kps, states, phones, count, summary, enabled, history,
         cv2.rectangle(canvas, (x0, y0), (x0 + fr.shape[1], y0 + fr.shape[0]), (20, 20, 90), -1)
         draw_text(canvas, "無法啟動", (cx, cy - 60), 60, C_PHONE, anchor="mm")
         for i, line in enumerate(fatal.split("\n")[:4]): draw_text(canvas, line[:40], (cx, cy + 10 + i * 34), 24, C_TXT, anchor="mm")
-    if ui.get("warn"): draw_text(canvas, ui["warn"], (x0 + 16, y0 + fr.shape[0] - 40), 22, C_PHONE)
+    if ui.get("warn"): draw_text(canvas, ui["warn"], (x0 + 16, y0 + fr.shape[0] - 84), 22, C_PHONE)   # 比凍結橫幅高一行,不互蓋
     if ui.get("frozen"):
         cv2.rectangle(canvas, (cx - 170, y0 + fr.shape[0] - 52), (cx + 170, y0 + fr.shape[0] - 8), (20, 20, 24), -1)
         draw_text(canvas, "已凍結 · 空白鍵恢復", (cx, y0 + fr.shape[0] - 30), 28, C_ACC, anchor="mm", shadow=False)
@@ -170,7 +170,7 @@ def main():
             if still is not None: ok, frame = True, still.copy()
             else:
                 ok, frame = cap.read()
-                if not ok: frame = np.zeros((H, W, 3), np.uint8); people = []; dets = []
+                if not ok: frame = np.zeros((H, W, 3), np.uint8); people = []; dets = []; tracks_kps = {}; phones = []; count_hist.clear(); count = 0
             if ui["flip"] and ok: frame = cv2.flip(frame, 1)
             now = time.monotonic()
             if frozen is not None: frame = frozen
@@ -229,7 +229,6 @@ def main():
             if key in ("q", "esc"): break
             if cv2.getWindowProperty(WIN, cv2.WND_PROP_VISIBLE) < 1: break   # 按了視窗的 X / Alt+F4
             if fatal: continue
-            if key in ("1", "2", "3", "4"): rk = A.RULES[int(key) - 1]; enabled[rk] = not enabled[rk]
             if key == " ":
                 if frozen is None: frozen = frame.copy(); freeze_t = now; ui["frozen"] = True
                 else:
@@ -238,6 +237,7 @@ def main():
                     history = deque((t + dt, v) for t, v in history); att_hist = deque((t + dt, v) for t, v in att_hist)
                     frozen = None; ui["frozen"] = False
             if frozen is not None: continue                     # 凍結中不處理 f / r / 1-4,避免畫面與面板不一致
+            if key in ("1", "2", "3", "4"): rk = A.RULES[int(key) - 1]; enabled[rk] = not enabled[rk]
             if key == "f": ui["flip"] = not ui["flip"]
             if key == "r": history.clear(); att_hist.clear(); count_hist.clear(); states.clear(); tracker = CentroidTracker(**TRACKER_KW)
             if key == "s":

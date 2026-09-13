@@ -5,7 +5,7 @@ hailo_vdevice.py —— 同一程序共用一個 VDevice(單例)+ HailoRT 物件
 C++ 解構子(會送 hRPC shutdown + USB close)都會失敗(LIBUSB_ERROR_IO)並讓 UGen300 從系統消失,必須重新插拔。
 對策:
   1. 同一程序只建立一個 VDevice(get()),各模型共用。
-  2. 每個 HailoRT 物件(InferModel / ConfiguredInferModel / Bindings)建好就 keep() 起來,
+  2. 每個 HailoRT 物件(InferModel / ConfiguredInferModel;FaceCheckIn 的 hailo_model 連 Bindings 也一起)建好就 keep() 起來,
      保證程序存活期間永不被回收 —— 即使模型類別的 __init__ 半途丟例外也不會觸發解構。
   3. 程序結束一律 exit_now()(os._exit)跳過 Python 收尾,由作業系統直接收回 USB handle。
   4. 前一個程序剛硬退出時,裝置端舊 session 還沒收掉,下一個程序的 create_infer_model 會撞 hRPC 逾時
@@ -23,7 +23,7 @@ RUN_TIMEOUT_MS = 10000
 
 _VDEVICE = None
 _KEEP = []
-_TRANSIENT = ("OUT_OF_PHYSICAL_DEVICES", "not enough free devices", "HAILO_TIMEOUT", "Received a timeout")
+_TRANSIENT = ("OUT_OF_PHYSICAL_DEVICES", "not enough free devices", "HAILO_TIMEOUT", "Received a timeout", "LIBUSB_FAILURE", "LIBUSB_ERROR_ACCESS")
 
 
 def keep(*objs):
