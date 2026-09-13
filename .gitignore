@@ -28,3 +28,11 @@ fruit_best.json
 Traffic/whitelist.json
 Traffic/gate_log.csv
 Traffic/count_log.csv
+FaceCheckIn/faces.json
+FaceCheckIn/checkin.csv
+FaceCheckIn/faces/*
+FaceCheckIn/probe_*.jpg
+FaceCheckIn/snap.png
+FaceCheckIn/checkin_*.png
+Classroom/classroom_*.png
+Classroom/snap.png
