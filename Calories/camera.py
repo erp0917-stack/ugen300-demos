@@ -78,6 +78,7 @@ def open_camera(source="auto", width=1280, height=720):
         return _open(idx, width, height), idx, nm
     try:
         idx = int(source)
+        if idx < 0: raise ValueError(idx)
     except (TypeError, ValueError):
         print(f"[鏡頭] --source 只能是 auto 或編號,收到 {source!r}", flush=True)
         return cv2.VideoCapture(), -1, ""

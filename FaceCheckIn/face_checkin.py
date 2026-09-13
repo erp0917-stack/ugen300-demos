@@ -86,7 +86,8 @@ def preload_faces(det, emb, db):
             s = PRELOAD_MAX_SIDE / max(img.shape[:2]); img = cv2.resize(img, None, fx=s, fy=s)
         try:
             faces = det.detect(img); v = emb.embed(img, faces[0]["kps"]) if faces else None
-        except Exception as e:  # noqa: BLE001  一張壞照片不能讓程式起不來
+        except Exception as e:  # noqa: BLE001  一張壞照片不能讓程式起不來;但逾時代表裝置壞了,往上丟讓主程式 fatal
+            if hailo_vdevice.is_timeout(e): raise
             print(f"[預先建檔] {name}:推論失敗 {type(e).__name__},略過"); skipped.append(name); continue
         if v is None: skipped.append(name); print(f"[預先建檔] {name}:照片裡找不到臉,略過"); continue
         db.add(name, v, square_crop(img, faces[0]["box"])); added.append(name)
@@ -190,17 +191,18 @@ def main():
         try:
             _added, skipped = preload_faces(det, emb, db)
             if skipped: preload_msg = "預先建檔略過:" + "、".join(skipped)[:24]
-        except Exception as e:  # noqa: BLE001  預先建檔出任何問題都不能讓程式起不來
+        except Exception as e:  # noqa: BLE001  預先建檔出任何問題都不能讓程式起不來(逾時例外:裝置已不可用)
             print("[預先建檔] 整批略過:", repr(e)); preload_msg = "預先建檔失敗,見主控台"
+            if hailo_vdevice.is_timeout(e): fatal = "UGen300 推論逾時\n請重新插拔後重開程式"
     still = None
     if args.image:
         still = cv2.imdecode(np.fromfile(args.image, np.uint8), cv2.IMREAD_COLOR)
         if still is None: print("讀不到圖片:", args.image); return
         cap, cam_idx, cam_name = cv2.VideoCapture(), -1, "靜態圖"; cam_ok = True
+    elif not (str(args.source).lower() == "auto" or str(args.source).isdigit()):
+        cap, cam_idx, cam_name = cv2.VideoCapture(), -1, ""; cam_ok = False; fatal = fatal or f"鏡頭參數錯誤:--source 只能是 auto 或 0/1/2,收到 {args.source!r}"
     else:
-        try: cap, cam_idx, cam_name = open_camera(args.source)
-        except (ValueError, TypeError) as e: cap, cam_idx, cam_name = cv2.VideoCapture(), -1, ""; fatal = fatal or f"鏡頭參數錯誤:{e}"
-        cam_ok = cap.isOpened()
+        cap, cam_idx, cam_name = open_camera(args.source); cam_ok = cap.isOpened()
     if not cam_ok and not fatal: fatal = "找不到可用鏡頭\n請關閉其他正在用鏡頭的程式(Teams、相機)後重開"
 
     def grab():
@@ -224,7 +226,7 @@ def main():
         while True:
             ok, frame = grab()
             frame = cv2.flip(frame, 1) if ok else np.zeros((H, W, 3), np.uint8)
-            faces, results = [], []
+            faces, results, vecs = [], [], []
             now = time.monotonic()
             if not ok and not fatal and still is None:
                 ui["warn"] = "鏡頭沒有畫面(USB 鬆了?)"; err_at = now; cam_lost_at = cam_lost_at or now

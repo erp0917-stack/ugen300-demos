@@ -151,7 +151,7 @@ class FaceDB:
         self.path = path; self.people = []; self.last_error = None
         if os.path.exists(path):
             try:
-                data = json.load(open(path, encoding="utf-8"))
+                with open(path, encoding="utf-8") as f: data = json.load(f)
                 if not isinstance(data, list): raise ValueError("頂層不是陣列")
                 loaded, bad = [], 0
                 for p in data:

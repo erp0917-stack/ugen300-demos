@@ -42,7 +42,7 @@ class HailoModel:
 
     def infer(self, rgb):
         """rgb: (input_h, input_w, 3) uint8。回傳的陣列是內部緩衝的複本,呼叫端可放心保存。"""
-        if self.broken: raise RuntimeError("此模型先前推論逾時,已停用")
+        if self.broken: raise RuntimeError("timeout: 此模型先前推論逾時,已停用")   # 含 timeout 字樣,is_timeout() 認得
         if rgb.shape[:2] != (self.input_h, self.input_w):
             raise ValueError(f"輸入大小 {rgb.shape[:2]} 不符模型 {(self.input_h, self.input_w)}")
         self._bindings.input().set_buffer(np.ascontiguousarray(rgb, dtype=np.uint8))
@@ -50,7 +50,9 @@ class HailoModel:
             self.configured.run([self._bindings], self.timeout_ms)
         except Exception as e:
             if hailo_vdevice.is_timeout(e): self.broken = True     # 舊 job 可能還在寫 _bufs,這組永不再用
-            else: self._make_bindings()                            # 其他錯誤:換一組乾淨的讓上層重試
+            else:
+                try: self._make_bindings()                         # 其他錯誤:換一組乾淨的讓上層重試
+                except Exception: pass                             # 重建也失敗就保留原例外往上丟
             raise
         out = {}
         for n in self.output_names:
