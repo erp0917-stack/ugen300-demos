@@ -37,3 +37,6 @@ FaceCheckIn/checkin_*.png
 Classroom/classroom_*.png
 Classroom/scene_test.jpg
 **/out.png
+OfflineCode/snippet.py
+OfflineCode/snap_*.png
+OfflineChat/snap_*.png

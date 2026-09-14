@@ -6,7 +6,7 @@ set "ROOT=%~dp0.."
 set "IMG=%ROOT%\scripts\plate_sample.png"
 echo ===== UGen300 全部 demo 自檢(每個載模型跑一次,結束後確認裝置仍在)=====
 hailortcli scan || (echo [!] 找不到 UGen300,請插上後重試 & pause & exit /b 1)
-for %%A in ("WakeUp|wakeup.py" "Calories|calories.py" "OfflineChat|offline_chat.py" "PhotoRestore|photo_restore.py" "HandDemos|gesture_caption.py" "HandDemos|fruit_ninja.py" "HandDemos|air_band.py" "Traffic|traffic_count.py" "HeadCount|head_count.py" "EdgeVsCloud|edge_vs_cloud.py" "FaceCheckIn|face_checkin.py" "Classroom|classroom.py") do (
+for %%A in ("WakeUp|wakeup.py" "Calories|calories.py" "OfflineChat|offline_chat.py" "PhotoRestore|photo_restore.py" "HandDemos|gesture_caption.py" "HandDemos|fruit_ninja.py" "HandDemos|air_band.py" "Traffic|traffic_count.py" "HeadCount|head_count.py" "EdgeVsCloud|edge_vs_cloud.py" "FaceCheckIn|face_checkin.py" "Classroom|classroom.py" "OfflineCode|offline_code.py") do (
   for /f "tokens=1,2 delims=|" %%D in (%%A) do (
     echo --- %%D\%%E ---
     pushd "%ROOT%\%%D"

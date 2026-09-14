@@ -44,7 +44,8 @@ The apps fall into three groups: pose and detection apps (Y series), vision-lang
 |-----|--------------|
 | **WakeUp** | An alarm you can only silence by doing five squats in front of the camera (pose estimation). Works on UGen200 too. |
 | **Calories** | Point the camera at a meal; the on-device VLM lists the items and estimates calories and protein, with a daily total. |
-| **OfflineChat** | A ChatGPT-style chat window streaming from Qwen3-1.7B (or Llama 3.2 1B) running entirely on the UGen300 — unplug the network and it keeps working. |
+| **OfflineChat** | A Claude-style chat window streaming from Qwen3-1.7B (or Llama 3.2 1B) running entirely on the UGen300 — unplug the network and it keeps working. Today's date and the model's knowledge cut-off are injected into every prompt. |
+| **OfflineCode** | A Claude Code-style coding assistant on Qwen2.5-Coder-1.5B: chat on the left, the generated code on the right with syntax colouring, one-click sandboxed run (10 s timeout), copy and save. |
 | **GestureCaption** | Shows the hand gesture you make (1–5, OK, thumbs-up, heart, rock...) as large captions using 21 hand landmarks — rule based, no training. |
 | **FruitNinja** | Your index finger is the blade: slice fruit, avoid bombs, 30-second rounds. |
 | **AirBand** | Drums, piano and guitar zones on screen — several people can play at once with their hands. |
@@ -105,6 +106,7 @@ Download each model file from the link below (the base set is listed in the tabl
 | `Qwen2-VL-2B-Instruct.hef` | `https://dev-public.hailo.ai/v5.2.0/blob/Qwen2-VL-2B-Instruct.hef` | V1, V2, V3, Face Report |
 | `Qwen3-1.7B-Instruct.hef` | `https://dev-public.hailo.ai/v5.3.0/blob/Qwen3-1.7B-Instruct.hef` | OfflineChat |
 | `Llama3.2-1B-Instruct.hef` | `https://dev-public.hailo.ai/v5.3.0/blob/Llama3.2-1B-Instruct.hef` | OfflineChat (optional) |
+| `Qwen2.5-Coder-1.5B-Instruct.hef` | `https://dev-public.hailo.ai/v5.3.0/blob/Qwen2.5-Coder-1.5B-Instruct.hef` | OfflineCode |
 | `zero_dce.hef` | `https://hailo-model-zoo.s3.eu-west-2.amazonaws.com/ModelZoo/Compiled/v5.4.0/hailo10h/zero_dce.hef` | PhotoRestore |
 | `dncnn_color_blind.hef` | `https://hailo-model-zoo.s3.eu-west-2.amazonaws.com/ModelZoo/Compiled/v5.4.0/hailo10h/dncnn_color_blind.hef` | PhotoRestore |
 | `real_esrgan_x2.hef` | `https://hailo-model-zoo.s3.eu-west-2.amazonaws.com/ModelZoo/Compiled/v5.4.0/hailo10h/real_esrgan_x2.hef` | PhotoRestore |
@@ -164,6 +166,7 @@ Open a terminal in the app's folder and run its entry point. Here are the comman
 | Meeting Notes (GUI) | `WQ1/` | `python meeting_gui.py` |
 | FaceCheckIn | `FaceCheckIn/` | `python face_checkin.py --source auto` |
 | Classroom | `Classroom/` | `python classroom.py --source auto` |
+| OfflineCode | `OfflineCode/` | `python offline_code.py` |
 | (other 2026-09 apps) | `WakeUp/`, `Calories/`, `OfflineChat/`, `PhotoRestore/`, `HandDemos/`, `Traffic/`, `HeadCount/`, `EdgeVsCloud/` | see the docstring at the top of each entry file; all camera apps accept `--source auto` |
 
 `--source auto` (default for the 2026-09 apps) picks an external USB webcam when one is plugged in and falls back to the built-in camera. `--source 0` / `--source 1` forces a specific camera.
@@ -186,6 +189,7 @@ ugen300-demos/
 ├── WakeUp/ Calories/ OfflineChat/ PhotoRestore/ HandDemos/ Traffic/ HeadCount/ EdgeVsCloud/   (2026-09 apps)
 ├── FaceCheckIn/    Face enrolment + check-in
 ├── Classroom/      Classroom dashboard
+├── OfflineCode/    Offline coding assistant
 ├── scripts/        selftest_all.bat, probe tools
 ├── models/         Shared model files (.hef)
 ├── launchers/      One-click .bat shortcuts

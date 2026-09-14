@@ -1,5 +1,7 @@
 """
-offline_chat.py —— 離線 ChatGPT:PySide6 聊天視窗 + UGen300 本機 LLM 串流。
+offline_chat.py —— 離線 Chat:Claude 風格的本機聊天視窗 + UGen300 LLM 串流。
+每次提問都把「今天日期、星期、模型知識截止日」注入系統提示(見 llm_engine.date_context),
+所以它會算日期、被問到近況會老實說不知道;真正的新資料要靠本機文件檢索(未含)。
 
 用法:python offline_chat.py [--model Qwen3-1.7B|Llama3.2-1B|Qwen2.5-1.5B]
       python offline_chat.py --selftest                 (載模型、問一題、印結果、離開)
@@ -13,13 +15,16 @@ import subprocess
 import sys
 import threading
 import time
+import traceback
+from datetime import datetime
 
 from PySide6.QtCore import Qt, QThread, Signal, QTimer, QSize
 from PySide6.QtGui import QFont, QTextCursor, QIcon
 from PySide6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
                                QLabel, QPushButton, QComboBox, QLineEdit, QScrollArea, QFrame, QSizePolicy)
 
-from llm_engine import LLMEngine, MODELS, DEFAULT_MODEL
+import hailo_vdevice
+from llm_engine import LLMEngine, MODELS, DEFAULT_MODEL, to_traditional, date_context
 
 STYLE = """
 QMainWindow, QWidget { background: #1b1b1f; color: #ececec; font-family: "Microsoft JhengHei UI", "Microsoft JhengHei", "Noto Sans TC"; }
@@ -102,17 +107,19 @@ class Chat(QMainWindow):
     def __init__(self, model, snapshot=""):
         super().__init__()
         self.net_sig.connect(self._set_net)
-        self.engine = LLMEngine(); self.model = model; self.snapshot = snapshot
-        self.setWindowTitle("UGen300 離線 ChatGPT"); self.resize(1100, 760)
+        self.engine = LLMEngine(kind="chat"); self.model = model; self.snapshot = snapshot
+        self.setWindowTitle("UGen300 離線 Chat"); self.resize(1100, 760)
         root = QWidget(); self.setCentralWidget(root); v = QVBoxLayout(root); v.setContentsMargins(20, 14, 20, 14); v.setSpacing(10)
 
         top = QHBoxLayout()
-        t = QLabel("離線 ChatGPT"); t.setObjectName("title"); top.addWidget(t)
+        t = QLabel("離線 Chat"); t.setObjectName("title"); top.addWidget(t)
+        sub = QLabel("Claude 風格 · 本機 LLM 跑在 UGen300"); sub.setObjectName("status"); top.addWidget(sub)
         top.addSpacing(16)
-        self.combo = QComboBox(); self.combo.addItems(list(MODELS)); self.combo.setCurrentText(model)
+        self.combo = QComboBox(); self.combo.addItems([m for m, c in MODELS.items() if c["kind"] == "chat"]); self.combo.setCurrentText(model)
         self.combo.currentTextChanged.connect(self._switch_model); top.addWidget(self.combo)
         self.clear_btn = QPushButton("清除對話"); self.clear_btn.clicked.connect(self._clear); top.addWidget(self.clear_btn)
         top.addStretch(1)
+        self.date = QLabel(f"今天 {datetime.now():%Y-%m-%d} · 知識截止 {MODELS[model]['cutoff']}"); self.date.setObjectName("status"); top.addWidget(self.date)
         self.net = QLabel("網路檢查中…"); self.net.setObjectName("status"); top.addWidget(self.net)
         self.cost = QLabel("0 元/月 · 資料不出這台電腦"); self.cost.setObjectName("offline"); top.addWidget(self.cost)
         v.addLayout(top)
@@ -174,7 +181,7 @@ class Chat(QMainWindow):
 
     def _ask(self, txt):
         self._add_bubble(txt, "user")
-        self.cur_think = None; self.cur_bot = self._add_bubble("", "bot")
+        self.cur_think = None; self.cur_bot = self._add_bubble("", "bot"); self._raw = ""
         self.input.setEnabled(False); self.send_btn.setEnabled(False); self.status.setText("思考中…")
         self.gen = GenWorker(self.engine, txt)
         self.gen.piece.connect(self._piece); self.gen.finished_ok.connect(self._done); self.gen.failed.connect(self._fail); self.gen.start()
@@ -188,8 +195,10 @@ class Chat(QMainWindow):
         else:
             self.cur_bot.append(s)
         self.scroll.verticalScrollBar().setValue(self.scroll.verticalScrollBar().maximum())
+        self._raw = getattr(self, "_raw", "") + (s if kind == "answer" else "")
 
     def _done(self, tps, ttft, n):
+        if getattr(self, "_raw", ""): self.cur_bot.setText(to_traditional(self._raw)); self._raw = ""   # 結束後整段簡轉繁
         self.status.setText(f"{self.model} · {tps:.1f} token/秒 · 首字 {ttft:.2f} 秒 · {n} tokens · 全程離線")
         self.input.setEnabled(True); self.send_btn.setEnabled(True); self.input.setFocus()
         if self.snapshot:
@@ -218,19 +227,26 @@ class Chat(QMainWindow):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--model", default=DEFAULT_MODEL, choices=list(MODELS))
+    ap.add_argument("--model", default=DEFAULT_MODEL, choices=[m for m, c in MODELS.items() if c["kind"] == "chat"])
     ap.add_argument("--selftest", action="store_true"); ap.add_argument("--snapshot", default="")
     args = ap.parse_args()
     if args.selftest:
-        e = LLMEngine().load(args.model, on_status=print)
-        ans, _ = e.ask_all("一句話自我介紹。", max_tokens=60)
-        print(f"[selftest] {args.model} OK | {e.rate.tps:.1f} tok/s | {ans[:80]}"); return
+        e = LLMEngine(kind="chat").load(args.model, on_status=print)
+        ans, _ = e.ask_all("今天是幾月幾號星期幾?一句話回答。", max_tokens=60)
+        print(f"[selftest] {args.model} OK | {e.rate.tps:.1f} tok/s | {to_traditional(ans)[:80]}"); return 0
     app = QApplication(sys.argv); app.setStyleSheet(STYLE)
     w = Chat(args.model, args.snapshot); w.show()
-    code = app.exec()
-    import hailo_vdevice
-    hailo_vdevice.exit_now(code)
+    return app.exec()
 
 
 if __name__ == "__main__":
-    main()
+    code = 0
+    try:
+        code = main() or 0
+    except KeyboardInterrupt:
+        pass
+    except SystemExit as e:
+        code = e.code if isinstance(e.code, int) else 1
+    except BaseException:  # noqa: BLE001  任何未預期錯誤都要走硬退出,否則 HailoRT 收尾會讓 UGen300 掉線
+        traceback.print_exc(); code = 1
+    hailo_vdevice.exit_now(code)
