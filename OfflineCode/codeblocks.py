@@ -64,6 +64,9 @@ ALLOWED_MODULES = {
     "dataclasses", "enum", "abc", "copy", "textwrap", "unicodedata", "array", "numbers", "pprint", "numpy",
     "csv", "io", "sys", "hashlib", "logging", "argparse", "asyncio", "threading", "queue", "sqlite3", "base64", "struct", "secrets", "uuid", "__future__",
 }
+FILE_CALLS = {"connect", "FileHandler", "basicConfig"}   # sqlite3 / logging 這些不經 open() 的寫檔入口,同樣只允許純檔名
+_ = {
+}
 BANNED_CALLS = {"exec", "eval", "compile", "__import__", "breakpoint", "globals", "vars", "getattr", "setattr", "delattr", "open_code"}
 BANNED_ATTRS = {"modules", "meta_path", "path_hooks", "settrace", "setprofile", "_getframe"}   # sys.modules['os'] 之類的繞過口
 SAFE_DUNDERS = {"__name__", "__main__", "__init__", "__repr__", "__str__", "__eq__", "__lt__", "__le__", "__gt__", "__ge__",
@@ -95,6 +98,10 @@ def looks_dangerous(code):
             f = node.func
             name = f.id if isinstance(f, ast.Name) else (f.attr if isinstance(f, ast.Attribute) else None)
             if name in BANNED_CALLS: return f"{name}()"
+            if name in FILE_CALLS:
+                for arg in list(node.args[:1]) + [kw.value for kw in node.keywords if kw.arg == "filename"]:
+                    if isinstance(arg, ast.Constant) and isinstance(arg.value, str) and arg.value != ":memory:" and (any(c in arg.value for c in ":/\\") or ".." in arg.value):
+                        return f"{name}(…) 指向暫存目錄以外的路徑"
             if name == "open":
                 m = _mode_of(node)
                 writing = m is not None and (not isinstance(m, ast.Constant) or any(c in str(m.value) for c in "wax+"))

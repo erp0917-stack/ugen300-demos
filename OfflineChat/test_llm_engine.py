@@ -55,7 +55,7 @@ def test_to_traditional():
     keep = "演算法在台灣很常見,numpy.array() 與 Hailo-10H 不變,周杰倫也不變"
     assert to_traditional(keep) == keep
     assert to_traditional("这个算法的数据") in ("這個演算法的資料", "这个算法的数据")
-    assert to_traditional("計算法則") == "計算法則"
+    assert to_traditional("計算法則") == "計算法則" and to_traditional("運算法則和估算法") == "運算法則和估算法"
 
 
 if __name__ == "__main__":

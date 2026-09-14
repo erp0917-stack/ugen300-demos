@@ -69,7 +69,7 @@ def to_traditional(text):
     if not text: return text
     if _CC: text = _CC.convert(text)
     for a, b in _TW_WORDS: text = text.replace(a, b)
-    text = re.sub(r"(?<![演計])算法", "演算法", text)       # 「算法」→「演算法」;「演算法」「計算法則」不動
+    text = re.sub(r"(?<![演計運估])算法", "演算法", text)     # 「算法」→「演算法」;「演算法」「計算法則」「運算法則」「估算法」不動
     return text
 
 
@@ -212,9 +212,14 @@ class LLMEngine:
                     td, ad = sp.feed(piece)
                     if td: yield "think", td
                     if ad: yield "answer", ad
+        except BaseException:
+            with self._lock:                          # 推論失敗/被中斷:不要把這一則 user 留在 history 當成下一題的上下文
+                if self.history and self.history[-1] is user_msg: self.history.pop()
+            raise
         finally:
             self._busy = False
         td, ad = sp.flush()
+        ad = re.sub(r"<\|[A-Za-z_]*$", "", ad)          # 被切成兩個 token 的殘缺結尾標記(<|im)不進畫面
         if td: yield "think", td
         if ad: yield "answer", ad
         with self._lock:

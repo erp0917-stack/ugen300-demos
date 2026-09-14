@@ -215,7 +215,7 @@ class CodeApp(QMainWindow):
     def _ask(self, txt):
         if self.engine.llm is None or (self.gen is not None and self.gen.isRunning()): return
         self.clear_btn.setEnabled(False); self._set_quick(False); self.code.setReadOnly(True)
-        self.code.clear(); self._code_shown = ""; self._refresh_run_btn()          # 新的一題:右側從空白開始
+        self.code.clear(); self._code_shown = ""; self.pane.setText("程式碼 · 可以直接改"); self._refresh_run_btn()   # 新的一題:右側從空白開始
         self._add_bubble(txt, "user"); self.cur_bot = self._add_bubble("", "bot"); self.full = ""
         self.input.setEnabled(False); self.send_btn.setEnabled(False); self.status.setText("撰寫中…")
         self.gen = GenWorker(self.engine, txt)
@@ -247,6 +247,7 @@ class CodeApp(QMainWindow):
         self.input.setEnabled(True); self.send_btn.setEnabled(True); self.clear_btn.setEnabled(True); self._set_quick(True)
         self.code.setReadOnly(False); self._refresh_run_btn(); self.status.setText("推論失敗:" + err)
         if self.cur_bot is not None: self.cur_bot.setText((self.cur_bot.text() + "\n[推論失敗] " + err).strip())
+        if self.snapshot: QTimer.singleShot(300, self._take_snapshot)
 
     def _clear(self):
         if self.gen is not None and self.gen.isRunning():

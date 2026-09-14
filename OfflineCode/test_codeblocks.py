@@ -40,7 +40,8 @@ def test_guard_blocks_real_threats():
     bad = ["import os\nos.system('rd /s /q x')", "from pathlib import Path\nPath('x').unlink()", "open('C:/x.txt','w').write('x')",
            "import shutil\nshutil.rmtree('x')", "__import__('os').remove('x')", "exec('import os')", "import importlib\nimportlib.import_module('os')",
            "import socket", "import urllib.request", "import subprocess", "import sys\nsys.modules['os']", "().__class__.__subclasses__()",
-           "import os as o\no.system('x')", "getattr(__builtins__, 'open')"]
+           "import os as o\no.system('x')", "getattr(__builtins__, 'open')",
+           "import sqlite3\nsqlite3.connect('C:/Users/x.db')", "import logging\nlogging.FileHandler('../x.log')"]
     for code in bad:
         assert C.looks_dangerous(code), code
 
@@ -51,7 +52,7 @@ def test_guard_allows_normal_code():
             "class A:\n    def __init__(self): pass\n    def __repr__(self): return 'A'\nif __name__ == '__main__': print(A())",
             "with open('in.txt') as f: pass", "import sys\nsys.setrecursionlimit(5000)", "x = [1,2]; x.remove(1); s = 'a'.replace('a','b')",
             "with open('scores.csv', 'w', newline='') as f: f.write('a,1')", "from __future__ import annotations", "import numpy as np\nprint(np.__version__)",
-            "print(__file__)", "import hashlib, logging, argparse",
+            "print(__file__)", "import hashlib, logging, argparse", "import sqlite3\nsqlite3.connect('demo.db')", "import sqlite3\nsqlite3.connect(':memory:')",
             "def f(:\n"]   # 語法錯誤交給沙箱報
     for code in good:
         assert C.looks_dangerous(code) is None, code
