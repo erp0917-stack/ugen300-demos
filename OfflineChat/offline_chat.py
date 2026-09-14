@@ -160,7 +160,7 @@ class Chat(QMainWindow):
 
     def _set_net(self, on):
         if on:
-            self.net.setText("網路:連線中"); self.net.setObjectName("online")
+            self.net.setText("網路:已連線(本 demo 不用)"); self.net.setObjectName("online")
         else:
             self.net.setText("網路已斷 · 仍在運作"); self.net.setObjectName("offline")
         self.net.style().unpolish(self.net); self.net.style().polish(self.net)
@@ -206,7 +206,7 @@ class Chat(QMainWindow):
             self.cur_think.append(s)
         else:
             self._raw += s; self.cur_bot.setText(to_traditional(self._raw))      # 串流中就逐段簡轉繁,不會結尾閃一下
-        self.scroll.verticalScrollBar().setValue(self.scroll.verticalScrollBar().maximum())
+        QTimer.singleShot(0, lambda: self.scroll.verticalScrollBar().setValue(self.scroll.verticalScrollBar().maximum()))
 
     def _done(self, tps, ttft, n):
         self.status.setText(f"{self.model} · {tps:.1f} token/秒 · 首字 {ttft:.2f} 秒 · {n} tokens · 全程離線")
@@ -234,7 +234,7 @@ class Chat(QMainWindow):
         if self.gen is not None and self.gen.isRunning():
             self.gen.requestInterruption(); self.gen.wait(5000)
         if self.loader.isRunning():
-            self.status.setText("等待模型載入結束…"); self.loader.wait()
+            self.status.setText("等待模型載入結束…"); self.loader.wait(5000)     # 反正最後是 os._exit,不無限等
         super().closeEvent(e)
 
     def _switch_model(self, name):

@@ -41,7 +41,8 @@ def date_context(now=None, cutoff="2024 年底"):
     """每次對話都注入:今天日期、星期、以及模型知識截止日。"""
     now = now or datetime.now()
     return (f"今天是 {now:%Y-%m-%d} 星期{WEEKDAYS[now.weekday()]},現在時間 {now:%H:%M}(台北)。"
-            f"你的知識只到 {cutoff};在那之後發生的事你不知道,被問到請直接說不知道,不要猜。")
+            f"你的訓練資料只到 {cutoff}。只有在被問到 {cutoff} 之後發生的新聞、事件、新產品時,才回答「我的資料只到 {cutoff},這個我不知道」;"
+            f"其他一般知識、解釋、建議、寫作、程式問題,都要正常完整地回答。")
 
 
 def build_system_prompt(kind="chat", model=DEFAULT_MODEL, now=None):
@@ -68,7 +69,7 @@ def to_traditional(text):
     if not text: return text
     if _CC: text = _CC.convert(text)
     for a, b in _TW_WORDS: text = text.replace(a, b)
-    text = re.sub(r"(?<!演)算法", "演算法", text)          # 「算法」→「演算法」,已是「演算法」的不動
+    text = re.sub(r"(?<![演計])算法", "演算法", text)       # 「算法」→「演算法」;「演算法」「計算法則」不動
     return text
 
 
@@ -129,7 +130,8 @@ class TokRate:
 
 def clean_answer(text):
     """去掉模型偶爾殘留的結尾標記。"""
-    return re.sub(r"<\|im_end\|>|<\|eot_id\|>|<\|end_of_text\|>", "", text).strip()
+    text = re.sub(r"<\|im_end\|>|<\|eot_id\|>|<\|end_of_text\|>", "", text)
+    return re.sub(r"<\|[A-Za-z_]*$", "", text).strip()      # 被切成兩個 token 的殘缺結尾標記(<|im)也砍掉
 
 
 # ---------- 引擎(需要裝置) ----------

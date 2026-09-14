@@ -34,6 +34,7 @@ def test_partial_lt_in_answer_is_not_lost():
 
 def test_clean_answer():
     assert clean_answer("好的<|im_end|>") == "好的"
+    assert clean_answer("好的<|im") == "好的" and clean_answer("a < b") == "a < b"
 
 
 def test_date_context_has_date_weekday_cutoff():
@@ -54,6 +55,7 @@ def test_to_traditional():
     keep = "演算法在台灣很常見,numpy.array() 與 Hailo-10H 不變,周杰倫也不變"
     assert to_traditional(keep) == keep
     assert to_traditional("这个算法的数据") in ("這個演算法的資料", "这个算法的数据")
+    assert to_traditional("計算法則") == "計算法則"
 
 
 if __name__ == "__main__":

@@ -142,8 +142,10 @@ class CodeApp(QMainWindow):
         self.feed = QWidget(); self.feed_l = QVBoxLayout(self.feed); self.feed_l.setSpacing(10); self.feed_l.addStretch(1)
         self.scroll.setWidget(self.feed); lv.addWidget(self.scroll, 1)
         quick = QHBoxLayout()
+        self.quick_btns = []
         for label, prompt in QUICK:
-            b = QPushButton(label); b.setProperty("class", "quick"); b.clicked.connect(lambda _=False, p=prompt: self._ask(p)); quick.addWidget(b)
+            b = QPushButton(label); b.setProperty("class", "quick"); b.setEnabled(False)
+            b.clicked.connect(lambda _=False, p=prompt: self._ask(p)); quick.addWidget(b); self.quick_btns.append(b)
         quick.addStretch(1); lv.addLayout(quick)
         bottom = QHBoxLayout()
         self.input = QLineEdit(); self.input.setPlaceholderText("描述你要的程式,Enter 送出(模型載入中…)"); self.input.setEnabled(False)
@@ -164,7 +166,7 @@ class CodeApp(QMainWindow):
         rv.addWidget(self.code, 3)
         ch = QHBoxLayout(); cl = QLabel("執行結果"); cl.setObjectName("pane"); ch.addWidget(cl); ch.addStretch(1)
         self.run_info = QLabel(""); self.run_info.setObjectName("status"); ch.addWidget(self.run_info); rv.addLayout(ch)
-        self.console = QPlainTextEdit(); self.console.setObjectName("console"); self.console.setReadOnly(True); self.console.setMaximumBlockCount(5000); rv.addWidget(self.console, 2)
+        self.console = QPlainTextEdit(); self.console.setObjectName("console"); self.console.setReadOnly(True); rv.addWidget(self.console, 2)   # 長度由 codeblocks.MAX_OUT 截斷(保留開頭)
         split.addWidget(right); split.setSizes([620, 760])
 
         self.cur_bot = None; self.gen = None; self.full = ""; self.lang = "python"; self.runner = None; self._code_shown = ""
@@ -177,7 +179,7 @@ class CodeApp(QMainWindow):
         threading.Thread(target=lambda: self.net_sig.emit(_net_online()), daemon=True).start()
 
     def _set_net(self, on):
-        self.net.setText("網路:連線中" if on else "網路已斷 · 仍在運作"); self.net.setObjectName("online" if on else "offline")
+        self.net.setText("網路:已連線(本 demo 不用)" if on else "網路已斷 · 仍在運作"); self.net.setObjectName("online" if on else "offline")
         self.net.style().unpolish(self.net); self.net.style().polish(self.net)
 
     # ----- 對話 -----
@@ -194,7 +196,14 @@ class CodeApp(QMainWindow):
             self.status.setText("模型載入失敗:" + err); self._add_bubble("模型載入失敗:\n" + err + "\n請確認 UGen300 已插上、沒有其他 demo 正在使用它、models/ 內有 .hef。", "bot"); return
         self.status.setText(f"{self.model} 就緒 · {MODELS[self.model]['tps']} · 今天 {datetime.now():%Y-%m-%d} · 描述你要的程式")
         self.input.setEnabled(True); self.send_btn.setEnabled(True); self.input.setPlaceholderText("描述你要的程式,Enter 送出"); self.input.setFocus()
+        self._set_quick(True)
         if self.snapshot: QTimer.singleShot(300, lambda: self._ask(QUICK[0][1]))
+
+    def _set_quick(self, on):
+        for b in self.quick_btns: b.setEnabled(on)
+
+    def _scroll_bottom(self):
+        QTimer.singleShot(0, lambda: self.scroll.verticalScrollBar().setValue(self.scroll.verticalScrollBar().maximum()))
 
     def _send(self):
         txt = self.input.text().strip()
@@ -204,8 +213,9 @@ class CodeApp(QMainWindow):
         self.run_btn.setEnabled(bool(self.code.toPlainText().strip()) and self.lang in ("python", "text") and not self.code.isReadOnly())
 
     def _ask(self, txt):
-        if self.gen is not None and self.gen.isRunning(): return
-        self.clear_btn.setEnabled(False); self.code.setReadOnly(True); self._code_shown = ""; self._refresh_run_btn()
+        if self.engine.llm is None or (self.gen is not None and self.gen.isRunning()): return
+        self.clear_btn.setEnabled(False); self._set_quick(False); self.code.setReadOnly(True)
+        self.code.clear(); self._code_shown = ""; self._refresh_run_btn()          # 新的一題:右側從空白開始
         self._add_bubble(txt, "user"); self.cur_bot = self._add_bubble("", "bot"); self.full = ""
         self.input.setEnabled(False); self.send_btn.setEnabled(False); self.status.setText("撰寫中…")
         self.gen = GenWorker(self.engine, txt)
@@ -218,22 +228,23 @@ class CodeApp(QMainWindow):
         lang, code = CB.last_code(self.full)
         if code is not None and code != self._code_shown:
             self.lang = lang; self.pane.setText(f"程式碼({lang})· 可以直接改")
-            if code.startswith(self._code_shown):          # 串流只補差異,不整段重設(不重跑上色、游標不跳)
+            if self._code_shown and code.startswith(self._code_shown):   # 串流只補差異,不整段重設(不重跑上色、游標不跳)
                 c = self.code.textCursor(); c.movePosition(QTextCursor.End); c.insertText(code[len(self._code_shown):])
             else:
                 self.code.setPlainText(code); self.code.moveCursor(QTextCursor.End)
             self._code_shown = code
-        self.scroll.verticalScrollBar().setValue(self.scroll.verticalScrollBar().maximum())
+        self._scroll_bottom()
 
     def _done(self, tps, ttft, n):
         self.status.setText(f"{self.model} · {tps:.1f} token/秒 · 首字 {ttft:.2f} 秒 · {n} tokens · 全程離線")
-        self.input.setEnabled(True); self.send_btn.setEnabled(True); self.clear_btn.setEnabled(True); self.input.setFocus()
+        self.input.setEnabled(True); self.send_btn.setEnabled(True); self.clear_btn.setEnabled(True); self._set_quick(True); self.input.setFocus()
         self.code.setReadOnly(False); self._refresh_run_btn()
         if self.cur_bot is not None and not CB.code_blocks(self.full): self.cur_bot.setText(to_traditional(self.full))
-        if self.snapshot: QTimer.singleShot(300, self._run)
+        self._scroll_bottom()
+        if self.snapshot: QTimer.singleShot(300, self._run if self.code.toPlainText().strip() else self._take_snapshot)
 
     def _fail(self, err):
-        self.input.setEnabled(True); self.send_btn.setEnabled(True); self.clear_btn.setEnabled(True)
+        self.input.setEnabled(True); self.send_btn.setEnabled(True); self.clear_btn.setEnabled(True); self._set_quick(True)
         self.code.setReadOnly(False); self._refresh_run_btn(); self.status.setText("推論失敗:" + err)
         if self.cur_bot is not None: self.cur_bot.setText((self.cur_bot.text() + "\n[推論失敗] " + err).strip())
 
@@ -253,7 +264,7 @@ class CodeApp(QMainWindow):
             if t is not None and t.isRunning():
                 t.requestInterruption(); t.wait(12000)
         if self.loader.isRunning():
-            self.status.setText("等待模型載入結束…"); self.loader.wait()
+            self.status.setText("等待模型載入結束…"); self.loader.wait(5000)     # 反正最後是 os._exit,不無限等
         super().closeEvent(e)
 
     # ----- 程式碼區 -----
@@ -267,8 +278,9 @@ class CodeApp(QMainWindow):
         self.console.clear(); c = self.console.textCursor()
         def put(text, color):
             f = QTextCharFormat(); f.setForeground(QColor(color)); c.insertText(text, f)
+        err = r["stderr"].replace("EOFError: EOF when reading a line", "EOFError: 這裡沒有鍵盤可以輸入,請把 input() 改成固定的值")
         if r["stdout"]: put(r["stdout"], "#9ece6a")
-        if r["stderr"]: put(("\n" if r["stdout"] else "") + r["stderr"], "#ff6b6b")
+        if err: put(("\n" if r["stdout"] else "") + err, "#ff6b6b")
         if not r["stdout"] and not r["stderr"]: put("(沒有輸出)", "#8b8b93")
         self.run_info.setText(("執行成功" if r["ok"] else ("已擋下" if r.get("blocked") else "執行失敗")) + f" · {r['elapsed']:.2f} 秒" + (" · 逾時中止" if r["timeout"] else ""))
         self._band("okband" if r["ok"] else "badband")
@@ -300,11 +312,11 @@ def main():
     args = ap.parse_args()
     if args.selftest:
         e = LLMEngine(kind="code").load(args.model, on_status=print)
-        ans, _ = e.ask_all("寫一個 Python 函式 fact(n) 回傳 n 的階乘,並印出 fact(5)。", max_tokens=200)
+        ans, _ = e.ask_all("寫一個 Python 函式 fact(n) 回傳 n 的階乘,並印出 fact(5)。", max_tokens=300)
         lang, code = CB.last_code(ans)
         r = CB.run_python(code) if code else dict(ok=False, stdout="", stderr="回答裡沒有程式碼區塊")
-        print(f"[selftest] {args.model} OK | {e.rate.tps:.1f} tok/s | 程式碼={'有' if code else '無'} | 執行={'OK' if r['ok'] else 'FAIL'} | 輸出={r['stdout'].strip()[:40]!r} {r['stderr'].strip()[:60]!r}")
-        return 0
+        print(f"[selftest] {args.model} {'OK' if r['ok'] else 'FAIL'} | {e.rate.tps:.1f} tok/s | 程式碼={'有' if code else '無'} | 執行={'OK' if r['ok'] else 'FAIL'} | 輸出={r['stdout'].strip()[:40]!r} {r['stderr'].strip()[:60]!r}")
+        return 0 if r["ok"] else 1
     app = QApplication(sys.argv); app.setStyleSheet(STYLE)
     w = CodeApp(args.model, args.snapshot); w.showMaximized()
     return app.exec()

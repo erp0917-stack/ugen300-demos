@@ -21,6 +21,8 @@ def test_lang_alias_empty_and_crlf():
 def test_unclosed_fence_streaming():
     assert C.code_blocks("開頭\n```python\nfor i in range(3):\n    pri") == [("python", "for i in range(3):\n    pri")]
     assert C.strip_code_to_text("開頭\n```python\nx") == "開頭\n[python 程式碼 → 右側]"
+    assert C.strip_code_to_text("先說明\n```python") == "先說明"      # 尾端未換行的 fence 不閃出來
+    assert C.strip_code_to_text("先說明\n```") == "先說明"
 
 
 def test_last_code_prefers_python_and_skips_empty():
@@ -48,6 +50,8 @@ def test_guard_allows_normal_code():
             "import math, random\nprint(math.sqrt(2))", "from collections import Counter", "import numpy as np\nprint(np.arange(3))",
             "class A:\n    def __init__(self): pass\n    def __repr__(self): return 'A'\nif __name__ == '__main__': print(A())",
             "with open('in.txt') as f: pass", "import sys\nsys.setrecursionlimit(5000)", "x = [1,2]; x.remove(1); s = 'a'.replace('a','b')",
+            "with open('scores.csv', 'w', newline='') as f: f.write('a,1')", "from __future__ import annotations", "import numpy as np\nprint(np.__version__)",
+            "print(__file__)", "import hashlib, logging, argparse",
             "def f(:\n"]   # 語法錯誤交給沙箱報
     for code in good:
         assert C.looks_dangerous(code) is None, code

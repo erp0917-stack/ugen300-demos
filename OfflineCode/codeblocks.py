@@ -62,14 +62,15 @@ ALLOWED_MODULES = {
     "math", "cmath", "random", "statistics", "decimal", "fractions", "itertools", "functools", "operator",
     "collections", "heapq", "bisect", "string", "re", "json", "datetime", "time", "calendar", "typing",
     "dataclasses", "enum", "abc", "copy", "textwrap", "unicodedata", "array", "numbers", "pprint", "numpy",
-    "csv", "io", "sys",
+    "csv", "io", "sys", "hashlib", "logging", "argparse", "asyncio", "threading", "queue", "sqlite3", "base64", "struct", "secrets", "uuid", "__future__",
 }
 BANNED_CALLS = {"exec", "eval", "compile", "__import__", "breakpoint", "globals", "vars", "getattr", "setattr", "delattr", "open_code"}
 BANNED_ATTRS = {"modules", "meta_path", "path_hooks", "settrace", "setprofile", "_getframe"}   # sys.modules['os'] 之類的繞過口
 SAFE_DUNDERS = {"__name__", "__main__", "__init__", "__repr__", "__str__", "__eq__", "__lt__", "__le__", "__gt__", "__ge__",
                 "__len__", "__iter__", "__next__", "__getitem__", "__setitem__", "__contains__", "__call__", "__enter__",
                 "__exit__", "__hash__", "__add__", "__sub__", "__mul__", "__truediv__", "__doc__", "__post_init__", "__bool__",
-                "__neg__", "__abs__", "__slots__", "__dict__", "__annotations__"}
+                "__neg__", "__abs__", "__slots__", "__dict__", "__annotations__", "__ne__", "__radd__", "__mod__", "__floordiv__",
+                "__pow__", "__version__", "__file__", "__all__", "__iadd__", "__isub__", "__reversed__", "__index__", "__int__", "__float__"}
 
 
 def _mode_of(call):
@@ -96,7 +97,12 @@ def looks_dangerous(code):
             if name in BANNED_CALLS: return f"{name}()"
             if name == "open":
                 m = _mode_of(node)
-                if m is not None and (not isinstance(m, ast.Constant) or any(c in str(m.value) for c in "wax+")): return "open(…, 寫入模式)"
+                writing = m is not None and (not isinstance(m, ast.Constant) or any(c in str(m.value) for c in "wax+"))
+                if writing:
+                    # 寫檔只允許「純檔名的常數」(落在沙箱暫存目錄);含路徑分隔、磁碟機、.. 或非常數的一律擋
+                    target = node.args[0] if node.args else None
+                    plain = isinstance(target, ast.Constant) and isinstance(target.value, str) and target.value and not any(c in target.value for c in ":/\\") and ".." not in target.value
+                    if not plain: return "open(…, 寫入模式)"
         elif isinstance(node, (ast.Attribute, ast.Name)):
             ident = node.attr if isinstance(node, ast.Attribute) else node.id
             if ident in BANNED_ATTRS: return ident
@@ -143,13 +149,17 @@ def run_python(code, timeout=10.0, python=None):
             _kill_tree(p)
             try: out, err = p.communicate(timeout=2)
             except subprocess.TimeoutExpired: out, err = "", ""
-            return dict(ok=False, stdout=_cap(out), stderr=f"執行超過 {timeout:.0f} 秒,已中止(可能是無窮迴圈或在等輸入)。",
+            return dict(ok=False, stdout=_cap(out), stderr=f"執行超過 {timeout:.0f} 秒,已中止(可能是無窮迴圈或算太久)。",
                         elapsed=time.monotonic() - t, timeout=True, blocked=False)
 
 
+_TRAILING_FENCE = re.compile(r"\n?```[A-Za-z0-9_+#.-]*[ \t]*$")
+
+
 def strip_code_to_text(text):
-    """把回答中的程式碼區塊換成「[程式碼見右側]」,給聊天泡泡用。"""
+    """把回答中的程式碼區塊換成「[程式碼見右側]」,給聊天泡泡用。串流中尾端還沒換行的 ``` 先隱藏,不會閃出「```python」。"""
     parts = []
     for s in split_segments(text):
         parts.append(s[1] if s[0] == "text" else f"[{s[1]} 程式碼 → 右側]")
-    return "\n".join(p.strip("\n") for p in parts)
+    out = "\n".join(p.strip("\n") for p in parts)
+    return _TRAILING_FENCE.sub("", out)
