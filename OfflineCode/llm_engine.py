@@ -32,7 +32,7 @@ WEEKDAYS = "一二三四五六日"
 CHAT_PROMPT = ("你是一個在本機離線執行的 AI 助理(跑在 UGen300 USB AI 加速器上)。"
                "一律使用繁體中文(台灣用語)回答,不要出現簡體字,簡潔直接。")
 CODE_PROMPT = ("你是一個在本機離線執行的程式助理。回答一律用繁體中文(台灣用語)簡短說明,"
-               "程式碼一律放在 ```python(或對應語言)區塊內,只給一個完整可執行的區塊,並在程式裡加註解;"
+               "程式碼一律放在 ```python(或對應語言)區塊內,只給一個完整可執行的區塊,程式裡的註解用英文;"
                "沒有指定語言時用 Python。不要重複題目,不要多餘客套。")
 
 
@@ -52,14 +52,24 @@ def build_system_prompt(kind="chat", model=DEFAULT_MODEL, now=None):
 
 try:
     from opencc import OpenCC
-    _CC = OpenCC("s2twp")
+    _CC = OpenCC("s2t")       # 只轉字、不做台灣異體(s2tw 會把「台灣」改「臺灣」;s2twp 會把「演算法」改「演演算法」)
 except Exception:  # noqa: BLE001
     _CC = None
+# 常見大陸用語 → 台灣用語(在 s2tw 之後套用,鍵是轉字後的寫法);刻意不收「支持/訪問/項目」這類兩岸都用的詞
+_TW_WORDS = [("軟件", "軟體"), ("硬件", "硬體"), ("數據", "資料"), ("網絡", "網路"), ("代碼", "程式碼"), ("默認", "預設"),
+             ("質量", "品質"), ("優化", "最佳化"), ("視頻", "影片"), ("屏幕", "螢幕"), ("內存", "記憶體"), ("文件夾", "資料夾"),
+             ("用戶", "使用者"), ("打印", "列印"), ("登錄", "登入"), ("界面", "介面"), ("字體", "字型"), ("信息", "資訊"),
+             ("服務器", "伺服器"), ("計算機", "電腦"), ("鼠標", "滑鼠"), ("硬盤", "硬碟"), ("程序員", "程式設計師"),
+             ("臺", "台")]   # OpenCC 連 s2t 都會把「台」轉成「臺」,台灣慣用「台」
 
 
 def to_traditional(text):
-    """簡轉繁(台灣用語);沒裝 opencc 就原樣回傳。程式碼不要丟進來(識別字會被改)。"""
-    return _CC.convert(text) if _CC else text
+    """簡轉繁 + 台灣用語;沒裝 opencc 就原樣回傳。程式碼不要丟進來(識別字會被改)。已是繁體的字不會被改壞。"""
+    if not text: return text
+    if _CC: text = _CC.convert(text)
+    for a, b in _TW_WORDS: text = text.replace(a, b)
+    text = re.sub(r"(?<!演)算法", "演算法", text)          # 「算法」→「演算法」,已是「演算法」的不動
+    return text
 
 
 class ThinkSplitter:
@@ -129,7 +139,7 @@ class LLMEngine:
         self.model_name = None; self.llm = None; self.vd = None
         self.history = []           # [{"role","content"}]
         self._lock = threading.Lock()   # 只保護載入/重設,不跨越串流
-        self._busy = False
+        self._busy = False; self._discard = False
         self.rate = TokRate()
 
     def load(self, name=None, on_status=None):
@@ -140,22 +150,28 @@ class LLMEngine:
             raise FileNotFoundError(f"找不到模型檔:{cfg['hef']}")
         with self._lock:
             if self.llm is not None:
-                try: self.llm.release()       # 只釋放模型層,VDevice 不動
-                except Exception: pass
-                self.llm = None
+                raise RuntimeError("同一個程序不能重載模型(HailoRT 5.3.2 會 INTERNAL_FAILURE),請重啟程式")
             if on_status: on_status(f"載入 {name}…")
             self.vd = hailo_vdevice.get()
-            t = time.monotonic()
-            self.llm = LLM(self.vd, cfg["hef"]); hailo_vdevice.keep(self.llm)
+            t = time.monotonic(); last = None
+            for i in range(3):
+                try:
+                    self.llm = LLM(self.vd, cfg["hef"]); hailo_vdevice.keep(self.llm); break
+                except Exception as e:  # noqa: BLE001  前一個程序剛硬退出時裝置端 session 未收,會撞逾時
+                    last = e
+                    if not (hailo_vdevice.is_timeout(e) or any(k in str(e) for k in hailo_vdevice._TRANSIENT)): raise
+                    if on_status: on_status(f"裝置忙碌,{i + 1}/3 重試…")
+                    time.sleep(2.0)
+            if self.llm is None: raise last
             self.model_name = name; self.history = []
             if on_status: on_status(f"{name} 載入完成({time.monotonic() - t:.1f}s)")
         return self
 
     def reset(self):
-        self.history = []
-        if self._busy:
-            return  # 生成中不動 context,等這一則結束;歷史已清空
         with self._lock:
+            self.history = []
+            if self._busy:
+                self._discard = True; return  # 生成中不動 context,等這一則結束後也不把它塞回 history
             if self.llm is not None:
                 try: self.llm.clear_context()
                 except Exception: pass
@@ -164,16 +180,20 @@ class LLMEngine:
         """產生器:逐段 yield (kind, text),kind ∈ {'think','answer'}。結束前會 flush。"""
         assert self.llm is not None, "模型尚未載入"
         if temperature is None: temperature = 0.2 if self.kind == "code" else 0.4
-        self.history.append({"role": "user", "content": user_text})
-        prompt = [{"role": "system", "content": build_system_prompt(self.kind, self.model_name)}] + self.history[-8:]
-        sp = ThinkSplitter(); self.rate.start(); full = ""
-        # 注意:不在持鎖狀態下 yield(否則 UI 在生成中按「清除」會死等);以 busy 旗標防止重入
-        if self._busy:
-            raise RuntimeError("上一則還在生成中")
-        self._busy = True
-        try:
+        # 注意:不在持鎖狀態下 yield(否則 UI 在生成中按「清除」會死等);busy 檢查、history 操作、clear_context 都在鎖內
+        with self._lock:
+            if self._busy:
+                raise RuntimeError("上一則還在生成中")
+            self._busy = True; self._discard = False
+            user_msg = {"role": "user", "content": user_text}
+            self.history.append(user_msg)
+            recent = self.history[-8:]
+            while recent and recent[0]["role"] != "user": recent = recent[1:]      # 切片不能以 assistant 開頭
+            prompt = [{"role": "system", "content": build_system_prompt(self.kind, self.model_name)}] + recent
             try: self.llm.clear_context()
             except Exception: pass
+        sp = ThinkSplitter(); self.rate.start(); full = ""
+        try:
             with self.llm.generate(prompt=prompt, max_generated_tokens=max_tokens,
                                    temperature=temperature, do_sample=True, top_p=0.9, seed=None) as gen:
                 for tok in gen:
@@ -195,7 +215,11 @@ class LLMEngine:
         td, ad = sp.flush()
         if td: yield "think", td
         if ad: yield "answer", ad
-        self.history.append({"role": "assistant", "content": clean_answer(sp.answer)})
+        with self._lock:
+            if self._discard or not self.history or self.history[-1] is not user_msg:
+                self.history = []; self._discard = False      # 生成中被清除:這一則不留
+            else:
+                self.history.append({"role": "assistant", "content": clean_answer(sp.answer)})
 
     def ask_all(self, user_text, max_tokens=256):
         """非串流版(自測用)。"""

@@ -51,6 +51,9 @@ def test_build_system_prompt_per_kind_and_model():
 def test_to_traditional():
     out = to_traditional("软件代码")
     assert out in ("軟體程式碼", "软件代码")   # 沒裝 opencc 就原樣回傳
+    keep = "演算法在台灣很常見,numpy.array() 與 Hailo-10H 不變,周杰倫也不變"
+    assert to_traditional(keep) == keep
+    assert to_traditional("这个算法的数据") in ("這個演算法的資料", "这个算法的数据")
 
 
 if __name__ == "__main__":

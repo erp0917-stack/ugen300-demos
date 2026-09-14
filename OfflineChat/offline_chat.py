@@ -29,9 +29,10 @@ from llm_engine import LLMEngine, MODELS, DEFAULT_MODEL, to_traditional, date_co
 STYLE = """
 QMainWindow, QWidget { background: #1b1b1f; color: #ececec; font-family: "Microsoft JhengHei UI", "Microsoft JhengHei", "Noto Sans TC"; }
 QLabel#title { font-size: 22px; font-weight: 700; }
-QLabel#status { color: #9aa0a6; font-size: 14px; }
-QLabel#offline { color: #37d67a; font-size: 14px; font-weight: 700; border: 1px solid #37d67a; border-radius: 6px; padding: 3px 8px; }
-QLabel#online { color: #ff6b6b; font-size: 14px; font-weight: 700; border: 1px solid #ff6b6b; border-radius: 6px; padding: 3px 8px; }
+QLabel#status { color: #c9c9d1; font-size: 18px; }
+QLabel#sub { color: #9aa0a6; font-size: 16px; }
+QLabel#offline { color: #1b1b1f; background: #37d67a; font-size: 18px; font-weight: 700; border-radius: 6px; padding: 4px 10px; }
+QLabel#online { color: #9aa0a6; font-size: 16px; border: 1px solid #55555e; border-radius: 6px; padding: 4px 10px; }
 QComboBox, QLineEdit, QPushButton { background: #2a2a30; border: 1px solid #3a3a42; border-radius: 8px; padding: 8px 12px; font-size: 16px; color: #ececec; }
 QLineEdit { font-size: 18px; }
 QPushButton#send { background: #2f6fed; border: none; font-weight: 700; }
@@ -59,7 +60,8 @@ class GenWorker(QThread):
     def __init__(self, engine, text): super().__init__(); self.engine, self.text = engine, text
     def run(self):
         try:
-            for kind, s in self.engine.stream(self.text):
+            for kind, s in self.engine.stream(self.text, max_tokens=800):   # Qwen3 的 think 與回答共用配額,給寬一點
+                if self.isInterruptionRequested(): break                    # 關視窗:提早結束(generate 的 with 會收掉)
                 self.piece.emit(kind, s)
             r = self.engine.rate; self.finished_ok.emit(r.tps, r.ttft, r.n)
         except Exception as e:  # noqa: BLE001
@@ -73,13 +75,20 @@ def _net_online(timeout=0.4):
         return False
 
 
+class NoWheelCombo(QComboBox):
+    """滾輪滑過不換模型(換模型=重啟程序,誤觸代價太大)。"""
+    def __init__(self):
+        super().__init__(); self.setFocusPolicy(Qt.StrongFocus)
+    def wheelEvent(self, e): e.ignore()
+
+
 class Bubble(QLabel):
     def __init__(self, text, who):
         super().__init__(text)
         self.setObjectName(who); self.setProperty("class", "bubble")
-        self.setWordWrap(True); self.setTextInteractionFlags(Qt.TextSelectableByMouse)
-        self.setMaximumWidth(760); self.setSizePolicy(QSizePolicy.Maximum, QSizePolicy.Minimum)
-        f = QFont(); f.setPointSize(13 if who != "think" else 10); self.setFont(f)
+        self.setWordWrap(True); self.setTextInteractionFlags(Qt.TextSelectableByMouse); self.setTextFormat(Qt.PlainText)
+        self.setMaximumWidth(1000); self.setSizePolicy(QSizePolicy.Maximum, QSizePolicy.Minimum)
+        f = QFont(); f.setPointSize(16 if who != "think" else 12); self.setFont(f)
 
     def append(self, s): self.setText(self.text() + s)
 
@@ -95,7 +104,7 @@ class ThinkBubble(Bubble):
 
     def _refresh(self):
         n = len(self.full)
-        self.setText(self.full if self.expanded else f"思考中…({n} 字,點一下展開)")
+        self.setText(to_traditional(self.full) if self.expanded else f"思考中…({n} 字,點一下展開)")
 
     def mousePressEvent(self, e):
         self.expanded = not self.expanded; self._refresh()
@@ -113,15 +122,15 @@ class Chat(QMainWindow):
 
         top = QHBoxLayout()
         t = QLabel("離線 Chat"); t.setObjectName("title"); top.addWidget(t)
-        sub = QLabel("Claude 風格 · 本機 LLM 跑在 UGen300"); sub.setObjectName("status"); top.addWidget(sub)
+        sub = QLabel("本機對話助理 · 模型跑在 UGen300"); sub.setObjectName("sub"); top.addWidget(sub)
         top.addSpacing(16)
-        self.combo = QComboBox(); self.combo.addItems([m for m, c in MODELS.items() if c["kind"] == "chat"]); self.combo.setCurrentText(model)
+        self.combo = NoWheelCombo(); self.combo.addItems([m for m, c in MODELS.items() if c["kind"] == "chat"]); self.combo.setCurrentText(model)
         self.combo.currentTextChanged.connect(self._switch_model); top.addWidget(self.combo)
         self.clear_btn = QPushButton("清除對話"); self.clear_btn.clicked.connect(self._clear); top.addWidget(self.clear_btn)
         top.addStretch(1)
-        self.date = QLabel(f"今天 {datetime.now():%Y-%m-%d} · 知識截止 {MODELS[model]['cutoff']}"); self.date.setObjectName("status"); top.addWidget(self.date)
+        self.date = QLabel(f"今天 {datetime.now():%m-%d}({'一二三四五六日'[datetime.now().weekday()]})· 知識到 {MODELS[model]['cutoff']}"); self.date.setObjectName("sub"); top.addWidget(self.date)
         self.net = QLabel("網路檢查中…"); self.net.setObjectName("status"); top.addWidget(self.net)
-        self.cost = QLabel("0 元/月 · 資料不出這台電腦"); self.cost.setObjectName("offline"); top.addWidget(self.cost)
+        self.cost = QLabel("無月費 · 資料不出這台電腦"); self.cost.setObjectName("offline"); top.addWidget(self.cost)
         v.addLayout(top)
 
         self.status = QLabel("載入模型中…"); self.status.setObjectName("status"); v.addWidget(self.status)
@@ -137,7 +146,7 @@ class Chat(QMainWindow):
         self.send_btn.clicked.connect(self._send); bottom.addWidget(self.send_btn)
         v.addLayout(bottom)
 
-        self.cur_bot = None; self.cur_think = None; self.gen = None
+        self.cur_bot = None; self.cur_think = None; self.gen = None; self._raw = ""
         self._add_bubble("你好!我是跑在 UGen300 上的本機 AI,現在可以拔掉網路線再問我問題。", "bot")
         self.loader = LoadWorker(self.engine, model); self.loader.status.connect(self.status.setText)
         self.loader.done.connect(self._loaded); self.loader.start()
@@ -153,7 +162,7 @@ class Chat(QMainWindow):
         if on:
             self.net.setText("網路:連線中"); self.net.setObjectName("online")
         else:
-            self.net.setText("網路:已斷線 ✓ 仍可運作"); self.net.setObjectName("offline")
+            self.net.setText("網路已斷 · 仍在運作"); self.net.setObjectName("offline")
         self.net.style().unpolish(self.net); self.net.style().polish(self.net)
 
     # ----- 對話 -----
@@ -180,6 +189,8 @@ class Chat(QMainWindow):
         if txt: self.input.clear(); self._ask(txt)
 
     def _ask(self, txt):
+        if self.gen is not None and self.gen.isRunning(): return
+        self.clear_btn.setEnabled(False); self.combo.setEnabled(False)
         self._add_bubble(txt, "user")
         self.cur_think = None; self.cur_bot = self._add_bubble("", "bot"); self._raw = ""
         self.input.setEnabled(False); self.send_btn.setEnabled(False); self.status.setText("思考中…")
@@ -187,38 +198,52 @@ class Chat(QMainWindow):
         self.gen.piece.connect(self._piece); self.gen.finished_ok.connect(self._done); self.gen.failed.connect(self._fail); self.gen.start()
 
     def _piece(self, kind, s):
+        if self.cur_bot is None: return          # 泡泡已被清除
         if kind == "think":
             if self.cur_think is None:
                 self.cur_think = ThinkBubble(); row = QHBoxLayout(); row.addWidget(self.cur_think); row.addStretch(1)
                 w = QWidget(); w.setLayout(row); self.feed_l.insertWidget(self.feed_l.count() - 2, w)
             self.cur_think.append(s)
         else:
-            self.cur_bot.append(s)
+            self._raw += s; self.cur_bot.setText(to_traditional(self._raw))      # 串流中就逐段簡轉繁,不會結尾閃一下
         self.scroll.verticalScrollBar().setValue(self.scroll.verticalScrollBar().maximum())
-        self._raw = getattr(self, "_raw", "") + (s if kind == "answer" else "")
 
     def _done(self, tps, ttft, n):
-        if getattr(self, "_raw", ""): self.cur_bot.setText(to_traditional(self._raw)); self._raw = ""   # 結束後整段簡轉繁
         self.status.setText(f"{self.model} · {tps:.1f} token/秒 · 首字 {ttft:.2f} 秒 · {n} tokens · 全程離線")
-        self.input.setEnabled(True); self.send_btn.setEnabled(True); self.input.setFocus()
+        self.input.setEnabled(True); self.send_btn.setEnabled(True); self.clear_btn.setEnabled(True); self.combo.setEnabled(True); self.input.setFocus()
         if self.snapshot:
             QTimer.singleShot(400, self._take_snapshot)
 
     def _fail(self, err):
-        self.cur_bot.append("\n[推論失敗] " + err); self.status.setText("推論失敗:" + err)
-        self.input.setEnabled(True); self.send_btn.setEnabled(True)
+        if self.cur_bot is not None: self.cur_bot.setText((to_traditional(self._raw) + "\n[推論失敗] " + err).strip())
+        self.status.setText("推論失敗:" + err)
+        self.input.setEnabled(True); self.send_btn.setEnabled(True); self.clear_btn.setEnabled(True); self.combo.setEnabled(True)
 
     def _clear(self):
-        self.engine.reset()
+        if self.gen is not None and self.gen.isRunning():
+            self.status.setText("生成中,請等這一則結束再清除"); return
+        self.engine.reset(); self.cur_bot = None; self.cur_think = None
         while self.feed_l.count() > 1:
             it = self.feed_l.takeAt(0); w = it.widget()
             if w: w.deleteLater()
         self._add_bubble("對話已清除。", "bot")
 
+    def closeEvent(self, e):
+        """關視窗前把背景執行緒收攏,避免 QThread 在執行中被解構。"""
+        self.net_timer.stop()
+        if self.gen is not None and self.gen.isRunning():
+            self.gen.requestInterruption(); self.gen.wait(5000)
+        if self.loader.isRunning():
+            self.status.setText("等待模型載入結束…"); self.loader.wait()
+        super().closeEvent(e)
+
     def _switch_model(self, name):
         if name == self.model: return
+        if (self.gen is not None and self.gen.isRunning()) or self.loader.isRunning():
+            self.combo.setCurrentText(self.model); self.status.setText("生成/載入中,稍後再切換模型"); return
         self.status.setText(f"切換到 {name}:重新啟動中…")
-        subprocess.Popen([sys.executable, os.path.abspath(__file__), "--model", name], cwd=os.path.dirname(os.path.abspath(__file__)))
+        subprocess.Popen([sys.executable, os.path.abspath(__file__), "--model", name], cwd=os.path.dirname(os.path.abspath(__file__)),
+                         creationflags=getattr(subprocess, "CREATE_NEW_CONSOLE", 0))   # 新主控台:舊 launcher 的 pause 視窗關掉不會連帶殺掉新程序
         QTimer.singleShot(300, QApplication.instance().quit)
 
     def _take_snapshot(self):
@@ -232,10 +257,11 @@ def main():
     args = ap.parse_args()
     if args.selftest:
         e = LLMEngine(kind="chat").load(args.model, on_status=print)
-        ans, _ = e.ask_all("今天是幾月幾號星期幾?一句話回答。", max_tokens=60)
-        print(f"[selftest] {args.model} OK | {e.rate.tps:.1f} tok/s | {to_traditional(ans)[:80]}"); return 0
+        ans, _ = e.ask_all("今天是幾月幾號星期幾?一句話回答。", max_tokens=220)
+        ans = to_traditional(ans); ok = (f"{datetime.now().month} 月" in ans or f"{datetime.now():%m-%d}" in ans or "星期" in ans) and bool(ans.strip())
+        print(f"[selftest] {args.model} {'OK' if ok else 'FAIL(日期沒答對)'} | {e.rate.tps:.1f} tok/s | {ans[:80]}"); return 0 if ok else 1
     app = QApplication(sys.argv); app.setStyleSheet(STYLE)
-    w = Chat(args.model, args.snapshot); w.show()
+    w = Chat(args.model, args.snapshot); w.showMaximized()
     return app.exec()
 
 
@@ -246,7 +272,7 @@ if __name__ == "__main__":
     except KeyboardInterrupt:
         pass
     except SystemExit as e:
-        code = e.code if isinstance(e.code, int) else 1
+        code = 0 if e.code is None else (e.code if isinstance(e.code, int) else 1)
     except BaseException:  # noqa: BLE001  任何未預期錯誤都要走硬退出,否則 HailoRT 收尾會讓 UGen300 掉線
         traceback.print_exc(); code = 1
     hailo_vdevice.exit_now(code)
